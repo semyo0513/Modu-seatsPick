@@ -643,7 +643,8 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
 // API 설정 및 google 에뮬레이터
 // ══════════════════════════════════════════════
 const GAS_API_URL_KEY = 'MODU_SEATS_GAS_API_URL';
-let GAS_API_URL = localStorage.getItem(GAS_API_URL_KEY) || '';
+const DEFAULT_GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxWkZkNsgrCM9N8QTguP8ba3aRpYotv5Je7X3B6fjBOwgQbOFjc5qjUQtepaO9Fq06t/exec';
+let GAS_API_URL = localStorage.getItem(GAS_API_URL_KEY) || DEFAULT_GAS_API_URL;
 
 function openApiConfigModal() {
   document.getElementById('api-url-input').value = GAS_API_URL;
