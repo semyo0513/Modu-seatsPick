@@ -399,11 +399,16 @@ function generateRandomSeating(accountId, seatLayout, students, rules, avoidLast
   var activeSeats      = seatLayout.filter(function(s){ return s.active; });
   var eligibleStudents = students.filter(function(s){ return !s.excluded; });
   var lastMap = (avoidLastSeating && accountId) ? getLastSeatingMap(accountId) : {};
+
+  // 활성 좌석의 최소 행 번호 계산 (칠판 쪽 = 행 번호가 가장 작은 쪽)
+  var rowNums = activeSeats.map(function(s){ return s.row; });
+  var minRow = rowNums.length ? Math.min.apply(null, rowNums) : 1;
+
   var MAX_ATTEMPTS = 500;
   for (var attempt=0; attempt<MAX_ATTEMPTS; attempt++) {
     var shuffled = shuffleArray(eligibleStudents.slice());
     var result   = assignSeats(activeSeats, shuffled);
-    if (checkRules(result, rules) && checkAvoidLast(result, lastMap)) return { ok:true, seats:result };
+    if (checkRules(result, rules, minRow) && checkAvoidLast(result, lastMap)) return { ok:true, seats:result };
   }
   var shuffled = shuffleArray(eligibleStudents.slice());
   return { ok:true, seats:assignSeats(activeSeats, shuffled), warning:'일부 규칙을 충족하지 못했습니다.' };
@@ -415,15 +420,19 @@ function assignSeats(activeSeats, students) {
   });
 }
 
-function checkRules(seats, rules) {
+function checkRules(seats, rules, minRow) {
   if (!rules || rules.length===0) return true;
+  // minRow가 없으면 1로 폴백 (칠판 = 가장 작은 행 번호)
+  var frontMin = (typeof minRow === 'number') ? minRow : 1;
+  var frontMax = frontMin + 1; // 앞 2행을 앞자리로 간주
   var posMap = {};
   seats.forEach(function(s){ if(s.student) posMap[s.student.number+'']={row:s.row,col:s.col}; });
   return rules.every(function(rule){
     var posA = posMap[rule.studentA+''];
     if (rule.type==='front') {
       if (!posA) return true;
-      return posA.row <= 2;
+      // 칠판 쪽(행 번호가 작은 쪽) 1~2행에 배치되어야 함
+      return posA.row <= frontMax;
     }
     var posB = posMap[rule.studentB+''];
     if (!posA || !posB) return true;
