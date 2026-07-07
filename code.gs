@@ -420,7 +420,12 @@ function checkRules(seats, rules) {
   var posMap = {};
   seats.forEach(function(s){ if(s.student) posMap[s.student.number+'']={row:s.row,col:s.col}; });
   return rules.every(function(rule){
-    var posA = posMap[rule.studentA+'']; var posB = posMap[rule.studentB+''];
+    var posA = posMap[rule.studentA+''];
+    if (rule.type==='front') {
+      if (!posA) return true;
+      return posA.row <= 2;
+    }
+    var posB = posMap[rule.studentB+''];
     if (!posA || !posB) return true;
     var adjacent = Math.abs(posA.row-posB.row)+Math.abs(posA.col-posB.col) <= 1;
     if (rule.type==='separate') return !adjacent;

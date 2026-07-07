@@ -171,6 +171,8 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
 #result-seat-grid{display:grid;gap:6px;width:max-content;margin:0 auto}
 .result-seat{width:70px;height:70px;border-radius:10px;border:2px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.72rem;text-align:center;transition:all .3s}
 .result-seat.empty{border-color:var(--border);background:var(--surface);opacity:.3}
+.result-seat.active-empty{border-color:var(--border);background:var(--surface);border-style:dashed;cursor:pointer}
+.result-seat.active-empty:hover{border-color:var(--teal);background:var(--surface2)}
 .result-seat.filled{border-color:var(--teal);background:linear-gradient(135deg,#0f3460,#16213e);cursor:grab}
 .result-seat.filled:active{cursor:grabbing}
 .result-seat.filled.drag-over{border-color:var(--accent)!important;background:rgba(233,69,96,.18)!important;transform:scale(1.1)}
@@ -978,6 +980,7 @@ function toast(msg, type){
 }
 
 function openModal(title, body, confirmCb){
+  document.getElementById('modal-confirm').style.display = '';
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = body;
   document.getElementById('modal-confirm').onclick = function(){ closeModal(); if(confirmCb) confirmCb(); };
@@ -1350,6 +1353,91 @@ function getStudentDisplayName(s){
   return s.name ? (s.number+'번 '+s.name) : s.number+'번';
 }
 
+// ══════════════════════════════════════════════
+// 특정 학생 고정 배정 모달 제어
+// ══════════════════════════════════════════════
+function openManualAssignModal(row, col) {
+  var seats = STATE.currentSeating ? STATE.currentSeating.seats : [];
+  if (!seats) return;
+  
+  var currentAssigned = seats.find(function(s){ return s.row===row && s.col===col; });
+  var currentStudent = currentAssigned ? currentAssigned.student : null;
+  
+  var html = '<p style="font-size:.85rem;color:var(--text2);margin-bottom:14px;line-height:1.4">';
+  if (currentStudent) {
+    html += '현재 배정: <strong style="color:var(--gold)">' + currentStudent.number + '번 ' + (currentStudent.name||'') + '</strong><br>';
+  } else {
+    html += '현재 배정: <strong>(빈자리)</strong><br>';
+  }
+  html += '배치할 학생을 선택해 주세요. 이미 다른 자리에 배정된 학생을 선택하면 서로 자리가 바뀝니다.</p>';
+  
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(130px, 1fr));gap:6px;max-height:300px;overflow-y:auto;padding-right:4px;">';
+  
+  if (currentStudent) {
+    html += '<button class="btn btn-danger btn-sm" style="grid-column:1/-1;justify-content:center;padding:10px;margin-bottom:8px" onclick="applyManualAssign(' + row + ',' + col + ', null)">🪑 좌석 비우기 (대기 상태로 이동)</button>';
+  }
+  
+  var eligibleStudents = STATE.students.filter(function(s){ return !s.excluded; });
+  eligibleStudents.forEach(function(student){
+    var assignedSeat = seats.find(function(s){ return s.student && s.student.number === student.number; });
+    var statusText = '';
+    var btnClass = 'btn-secondary';
+    
+    if (assignedSeat) {
+      if (assignedSeat.row === row && assignedSeat.col === col) {
+        btnClass = 'btn-teal';
+        statusText = ' (현재 자리)';
+      } else {
+        statusText = ' (' + assignedSeat.row + '행' + assignedSeat.col + '열)';
+      }
+    } else {
+      statusText = ' (대기 중)';
+      btnClass = 'btn-primary';
+    }
+    
+    html += '<button class="btn ' + btnClass + ' btn-sm" style="flex-direction:column;align-items:flex-start;padding:8px 10px;text-align:left;height:auto;gap:2px;border:1px solid var(--border)" onclick="applyManualAssign(' + row + ',' + col + ',' + student.number + ')">';
+    html += '<span style="font-weight:700;font-size:0.85rem;color:var(--text)">' + student.number + '번 ' + (student.name||'') + '</span>';
+    html += '<span style="font-size:0.7rem;color:var(--text2);opacity:0.8;">' + statusText + '</span>';
+    html += '</button>';
+  });
+  
+  html += '</div>';
+  
+  openModal(row + '행 ' + col + '열 학생 수동 배정', html);
+  
+  var confirmBtn = document.getElementById('modal-confirm');
+  if (confirmBtn) confirmBtn.style.display = 'none';
+}
+
+function applyManualAssign(row, col, studentNum) {
+  closeModal();
+  var seats = STATE.currentSeating ? STATE.currentSeating.seats : [];
+  if (!seats) return;
+  
+  var targetSeat = seats.find(function(s){ return s.row===row && s.col===col; });
+  if (!targetSeat) {
+    // 만약 STATE.currentSeating에 아직 이 좌표의 seat 객체가 없다면 생성
+    targetSeat = { row: row, col: col, student: null };
+    seats.push(targetSeat);
+  }
+  
+  if (studentNum === null) {
+    targetSeat.student = null;
+  } else {
+    var student = STATE.students.find(function(s){ return s.number === studentNum; });
+    if (!student) return;
+    
+    var prevSeat = seats.find(function(s){ return s.student && s.student.number === studentNum; });
+    if (prevSeat) {
+      prevSeat.student = targetSeat.student;
+    }
+    targetSeat.student = student;
+  }
+  
+  renderShuffleResult(STATE.currentSeating);
+  toast('좌석 배정이 변경되었습니다. ✅', 'success');
+}
+
 function doShuffle(reshuffle){
   var activeSeats = STATE.seatLayout.filter(function(s){ return s.active; });
   var eligibleStudents = STATE.students.filter(function(s){ return !s.excluded; });
@@ -1405,6 +1493,12 @@ function renderShuffleResult(result){
           div.dataset.col = assigned.col;
           div.innerHTML = '<div class="r-num">'+assigned.student.number+'번</div><div class="r-name">'+(assigned.student.name||'—')+'</div>';
           div.draggable = true;
+          // 클릭 시 수동 배정 모달 열기
+          div.addEventListener('click', function(){
+            var rVal = parseInt(this.dataset.row);
+            var cVal = parseInt(this.dataset.col);
+            openManualAssignModal(rVal, cVal);
+          });
           div.addEventListener('dragstart', function(e){
             _dragSrcSeat = { row: parseInt(this.dataset.row), col: parseInt(this.dataset.col) };
             this.classList.add('dragging');
@@ -1437,7 +1531,16 @@ function renderShuffleResult(result){
             renderShuffleResult(STATE.currentSeating);
           });
         } else {
-          div.className = 'result-seat empty';
+          // 활성 빈 좌석
+          div.className = 'result-seat active-empty';
+          div.dataset.row = r;
+          div.dataset.col = c;
+          div.innerHTML = '<div class="r-num">' + r + '-' + c + '</div><div class="r-name" style="color:var(--text2);font-size:.65rem;">(빈자리)</div>';
+          div.addEventListener('click', function(){
+            var rowVal = parseInt(this.dataset.row);
+            var colVal = parseInt(this.dataset.col);
+            openManualAssignModal(rowVal, colVal);
+          });
         }
       }
       gridEl.appendChild(div);
