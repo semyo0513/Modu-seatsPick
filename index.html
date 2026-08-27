@@ -322,29 +322,6 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
   </div>
 </div>
 
-<!-- ══════════ API 설정 모달 ══════════ -->
-<div id="api-modal-bg" class="modal-bg">
-  <div class="modal" style="max-width:480px">
-    <div class="modal-title">⚙️ 구글 앱스 스크립트(GAS) API 설정</div>
-    <div class="profile-section">
-      <div class="profile-section-title">🔗 백엔드 API Web App URL 입력</div>
-      <div class="profile-field" style="margin-top:12px">
-        <label>GAS Web App URL (웹앱 URL)</label>
-        <input type="text" id="api-url-input" placeholder="https://script.google.com/macros/s/.../exec">
-      </div>
-      <div style="font-size:.8rem;color:var(--text2);margin-top:12px;line-height:1.5">
-        ⚠️ <strong>주의:</strong> 본 웹앱은 구글 시트를 DB로 사용합니다.<br>
-        구글 앱스 스크립트 프로젝트를 <strong>'웹앱(Web App)'</strong>으로 배포한 뒤 발급받은 URL을 입력해주세요.<br>
-        - <strong>액세스 권한:</strong> 모든 사람(Anyone)<br>
-        - <strong>웹앱 실행자:</strong> 나(Me)
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeApiConfigModal()">취소</button>
-      <button class="btn btn-teal" onclick="saveApiConfig()">💾 설정 저장</button>
-    </div>
-  </div>
-</div>
 
 <!-- ══════════ 히스토리 배치도 모달 ══════════ -->
 <div class="modal-bg" id="history-modal-bg">
@@ -387,11 +364,6 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
       <div class="auth-divider">또는</div>
       <button class="auth-btn auth-btn-guest" onclick="doGuest()">👤 비회원으로 시작 (저장 안 됨)</button>
     </div>
-    <div style="text-align:center;margin-top:16px;border-top:1px dashed var(--border);padding-top:16px">
-      <a href="#" onclick="openApiConfigModal(); return false;" style="color:var(--teal);font-size:.82rem;text-decoration:none;display:inline-flex;align-items:center;gap:4px;font-weight:500">
-        ⚙️ 백엔드(GAS) API URL 설정
-      </a>
-    </div>
   </div>
 </div>
 
@@ -408,7 +380,6 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
     <button class="nav-btn" onclick="showPanel('panel-history')" data-panel="panel-history">📚 기록</button>
   </nav>
   <div class="user-area">
-    <button class="btn-logout" onclick="openApiConfigModal()" style="border-color:var(--teal);color:var(--teal);margin-right:4px" title="API 주소 설정">⚙️ API 설정</button>
     <div class="user-badge" id="user-badge" onclick="onUserBadgeClick()" title="계정 정보 변경">
       <div class="dot guest" id="user-dot"></div>
       <span class="user-name" id="user-name-label">비회원</span>
@@ -645,29 +616,8 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
 // ══════════════════════════════════════════════
 // API 설정 및 google 에뮬레이터
 // ══════════════════════════════════════════════
-const GAS_API_URL_KEY = 'MODU_SEATS_GAS_API_URL';
-const DEFAULT_GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwHrJGrirr-6X0ORl3brU-j81bwAx04sylJDf3-qcnKeXTBkvdeyz1uMpY4idmY6zE/exec';
-let GAS_API_URL = localStorage.getItem(GAS_API_URL_KEY) || DEFAULT_GAS_API_URL;
-
-function openApiConfigModal() {
-  document.getElementById('api-url-input').value = GAS_API_URL;
-  document.getElementById('api-modal-bg').classList.add('show');
-}
-function closeApiConfigModal() {
-  document.getElementById('api-modal-bg').classList.remove('show');
-}
-function saveApiConfig() {
-  var url = document.getElementById('api-url-input').value.trim();
-  if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[^\/]+\/exec$/.test(url)) {
-    if (!confirm('입력하신 URL이 올바른 구글 앱스 스크립트 웹앱 URL 형식(https://script.google.com/macros/s/.../exec)이 아닌 것 같습니다.\n그래도 저장하시겠습니까?')) {
-      return;
-    }
-  }
-  localStorage.setItem(GAS_API_URL_KEY, url);
-  GAS_API_URL = url;
-  closeApiConfigModal();
-  toast('API URL이 저장되었습니다. ✅', 'success');
-}
+// 백엔드 GAS Web App URL (고정)
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwHrJGrirr-6X0ORl3brU-j81bwAx04sylJDf3-qcnKeXTBkvdeyz1uMpY4idmY6zE/exec';
 
 // google.script.run 에뮬레이터 정의
 const google = {
@@ -685,14 +635,6 @@ const google = {
           return this;
         },
         dispatch: function(action, payload) {
-          if (!GAS_API_URL) {
-            if (typeof hideLoading === 'function') hideLoading();
-            openApiConfigModal();
-            toast('API URL을 먼저 설정해주세요!', 'error');
-            if (this._failureHandler) this._failureHandler(new Error('API URL 미설정'));
-            return;
-          }
-          
           fetch(GAS_API_URL, {
             method: 'POST',
             mode: 'cors',
