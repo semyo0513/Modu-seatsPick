@@ -199,6 +199,7 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
 /* ──────────── 히스토리 배치도 모달 ──────────── */
 .history-grid-wrap{overflow:auto;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);margin-top:12px}
 .history-blackboard{background:linear-gradient(180deg,#1a472a,#145a32);border:3px solid #8B6914;border-radius:6px;text-align:center;padding:7px;margin-bottom:16px;font-family:'Jua',sans-serif;font-size:1rem;color:#90EE90;letter-spacing:3px}
+.history-blackboard-bottom{margin-bottom:0;margin-top:16px}
 .h-seat{width:58px;height:58px;border-radius:8px;border:2px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.68rem;text-align:center}
 .h-seat.empty{border-color:var(--border);background:var(--surface);opacity:.35}
 .h-seat.filled{border-color:var(--teal);background:linear-gradient(135deg,#0f3460,#16213e)}
@@ -585,7 +586,7 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
       <button class="btn btn-success" onclick="saveCurrentSeating()">💾 배치 저장</button>
       <button class="btn btn-secondary" onclick="printSeating()">🖨️ 인쇄</button>
       <button class="btn btn-secondary" onclick="downloadXlsx()">📊 엑셀 다운로드</button>
-      <button class="flip-btn" id="flip-btn-shuffle" onclick="toggleFlip('shuffle')" title="칠판 위치 상하반전">🔃 칠판 위치 반전</button>
+      <button class="flip-btn" id="flip-btn-shuffle" onclick="toggleFlip('shuffle')" title="칠판 위치 반전 (상하좌우)">🔃 칠판 위치 반전</button>
     </div>
   </div>
   <div class="card" id="shuffle-result-card" style="display:none">
@@ -606,7 +607,7 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
       <button class="btn btn-secondary" onclick="resetRoulette()">↺ 초기화</button>
       <button class="btn btn-success" onclick="saveCurrentSeating()">💾 배치 저장</button>
       <button class="btn btn-secondary" onclick="downloadXlsx()">📊 엑셀 다운로드</button>
-      <button class="flip-btn" id="flip-btn-roulette" onclick="toggleFlip('roulette')" title="칠판 위치 상하반전">🔃 칠판 위치 반전</button>
+      <button class="flip-btn" id="flip-btn-roulette" onclick="toggleFlip('roulette')" title="칠판 위치 반전 (상하좌우)">🔃 칠판 위치 반전</button>
     </div>
   </div>
   <div class="card">
@@ -739,7 +740,8 @@ var STATE = {
   cols: 6,
   dragSrc: null,
   flipShuffle: false,
-  flipRoulette: false
+  flipRoulette: false,
+  flipHistory: false
 };
 
 function getAccountId() {
@@ -1313,7 +1315,7 @@ function saveRules(){
 }
 
 // ══════════════════════════════════════════════
-// 상하반전 토글
+// 칠판 위치 반전 토글 (행·열 순서를 모두 뒤집어 180도 회전 효과)
 // ══════════════════════════════════════════════
 function toggleFlip(mode){
   if (mode === 'shuffle') {
@@ -1477,9 +1479,12 @@ function renderShuffleResult(result){
   gridEl.style.gridTemplateColumns = 'repeat('+cols+', 74px)';
 
   var orderedRows = STATE.flipShuffle ? rows.slice().reverse() : rows;
+  var orderedCols = [];
+  for(var _sc=1; _sc<=cols; _sc++){ orderedCols.push(_sc); }
+  if(STATE.flipShuffle) orderedCols.reverse();
 
   orderedRows.forEach(function(r){
-    for(var c=1; c<=cols; c++){
+    orderedCols.forEach(function(c){
       var seat = STATE.seatLayout.find(function(s){ return s.row===r && s.col===c; });
       var div = document.createElement('div');
       if(!seat || !seat.active){
@@ -1544,7 +1549,7 @@ function renderShuffleResult(result){
         }
       }
       gridEl.appendChild(div);
-    }
+    });
   });
 
   var container = document.getElementById('result-classroom');
@@ -1747,13 +1752,16 @@ function renderRouletteSeatGrid(){
   STATE.seatLayout.forEach(function(s){ if(s.active) rowSet[s.row]=true; });
   var rows = Object.keys(rowSet).map(Number).sort(function(a,b){return a-b;});
   var orderedRows = STATE.flipRoulette ? rows.slice().reverse() : rows;
+  var orderedColsR = [];
+  for(var _rc=1; _rc<=STATE.cols; _rc++){ orderedColsR.push(_rc); }
+  if(STATE.flipRoulette) orderedColsR.reverse();
 
   var gridEl = document.createElement('div');
   gridEl.id = 'roulette-seat-grid';
   gridEl.style.cssText='display:grid;gap:4px;margin:0 auto 12px;width:max-content;grid-template-columns:repeat('+STATE.cols+', 56px)';
 
   orderedRows.forEach(function(r){
-    for(var c=1; c<=STATE.cols; c++){
+    orderedColsR.forEach(function(c){
       var seat = STATE.seatLayout.find(function(s){ return s.row===r && s.col===c; });
       var div = document.createElement('div');
       if(!seat || !seat.active){
@@ -1772,7 +1780,7 @@ function renderRouletteSeatGrid(){
         }
       }
       gridEl.appendChild(div);
-    }
+    });
   });
 
   container.appendChild(buildClassroomHTML(gridEl, STATE.flipRoulette));
@@ -1895,8 +1903,15 @@ function viewHistoryRecord(idx){
   gridEl.style.cssText = 'display:grid;gap:5px;width:max-content;margin:0 auto;'
     +'grid-template-columns:repeat('+maxCol+', 62px)';
 
-  for(var r=1; r<=maxRow; r++){
-    for(var c=1; c<=maxCol; c++){
+  var orderedRowsH = [];
+  for(var _rh=1; _rh<=maxRow; _rh++){ orderedRowsH.push(_rh); }
+  if(STATE.flipHistory) orderedRowsH.reverse();
+  var orderedColsH = [];
+  for(var _ch=1; _ch<=maxCol; _ch++){ orderedColsH.push(_ch); }
+  if(STATE.flipHistory) orderedColsH.reverse();
+
+  orderedRowsH.forEach(function(r){
+    orderedColsH.forEach(function(c){
       var div = document.createElement('div');
       var key = r+','+c;
       var stu = assignedMap[key];
@@ -1915,16 +1930,27 @@ function viewHistoryRecord(idx){
         div.style.cssText = 'width:62px;height:58px;opacity:0;pointer-events:none';
       }
       gridEl.appendChild(div);
-    }
-  }
+    });
+  });
+
+  var flipBtnWrap = document.createElement('div');
+  flipBtnWrap.style.cssText = 'text-align:right;margin-bottom:8px';
+  flipBtnWrap.innerHTML = '<button class="flip-btn'+(STATE.flipHistory?' active':'')+'" '
+    +'onclick="toggleHistoryFlip('+idx+')" title="칠판 위치 반전 (상하좌우)">🔃 '
+    +(STATE.flipHistory ? '반전 해제' : '칠판 위치 반전')+'</button>';
 
   var wrap = document.createElement('div');
   wrap.className = 'history-grid-wrap';
   var board = document.createElement('div');
-  board.className = 'history-blackboard';
+  board.className = STATE.flipHistory ? 'history-blackboard history-blackboard-bottom' : 'history-blackboard';
   board.textContent = '📖 칠판 (앞)';
-  wrap.appendChild(board);
-  wrap.appendChild(gridEl);
+  if (STATE.flipHistory) {
+    wrap.appendChild(gridEl);
+    wrap.appendChild(board);
+  } else {
+    wrap.appendChild(board);
+    wrap.appendChild(gridEl);
+  }
 
   // 학생 번호순 목록
   var studentList = seats
@@ -1946,11 +1972,18 @@ function viewHistoryRecord(idx){
 
   var bodyEl = document.getElementById('history-modal-body');
   bodyEl.innerHTML = '';
+  bodyEl.appendChild(flipBtnWrap);
   bodyEl.appendChild(wrap);
   bodyEl.insertAdjacentHTML('beforeend', tableHTML);
 
   document.getElementById('history-modal-csv-btn').onclick = function(){ downloadHistoryCSV(idx); };
   document.getElementById('history-modal-bg').classList.add('show');
+}
+
+// 기록 열람 화면 칠판 위치 반전 토글
+function toggleHistoryFlip(idx){
+  STATE.flipHistory = !STATE.flipHistory;
+  viewHistoryRecord(idx);
 }
 
 function closeHistoryModal(){
