@@ -603,7 +603,7 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
 <!-- ═══════════════════════════ 기록 ═══════════════════════════ -->
 <div class="panel" id="panel-history">
   <div class="card">
-    <div class="card-title"><span class="icon">📚</span>배치 기록 (최근 10회)</div>
+    <div class="card-title"><span class="icon">📚</span>배치 기록 <span class="badge" id="history-total-count" style="display:none;background:var(--teal);color:#fff;padding:2px 8px;border-radius:12px;font-size:0.8rem"></span></div>
     <button class="btn btn-secondary btn-sm" onclick="loadHistory()" style="margin-bottom:12px">🔄 새로고침</button>
     <div id="history-list"><div style="color:var(--text2);text-align:center;padding:20px">기록이 없습니다</div></div>
   </div>
@@ -635,9 +635,11 @@ const google = {
           return this;
         },
         dispatch: function(action, payload) {
-          fetch(GAS_API_URL, {
+          var reqUrl = GAS_API_URL + (GAS_API_URL.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now();
+          fetch(reqUrl, {
             method: 'POST',
             mode: 'cors',
+            cache: 'no-store',
             headers: {
               'Content-Type': 'text/plain;charset=utf-8'
             },
@@ -1226,6 +1228,9 @@ function addRule(){
   STATE.rules.push({ id:'R'+Date.now(), type:type, studentA:sa, studentB:sb, memo:memo });
   renderRuleList();
   toast('규칙이 추가되었습니다','success');
+  if (STATE.user) {
+    call('saveRules', { rules: STATE.rules });
+  }
 }
 
 function renderRuleList(){
@@ -1249,8 +1254,21 @@ function renderRuleList(){
   }).join('');
 }
 
-function deleteRule(i){ STATE.rules.splice(i,1); renderRuleList(); }
-function clearRules(){ STATE.rules=[]; renderRuleList(); toast('규칙이 초기화되었습니다','info'); }
+function deleteRule(i){ 
+  STATE.rules.splice(i,1); 
+  renderRuleList(); 
+  if (STATE.user) {
+    call('saveRules', { rules: STATE.rules });
+  }
+}
+function clearRules(){ 
+  STATE.rules=[]; 
+  renderRuleList(); 
+  toast('규칙이 초기화되었습니다','info'); 
+  if (STATE.user) {
+    call('saveRules', { rules: STATE.rules });
+  }
+}
 function saveRules(){
   if (!STATE.user) { toast('로그인 후 저장할 수 있습니다', 'error'); return; }
   call('saveRules', { rules: STATE.rules }, function(err){ if(!err) toast('규칙이 저장되었습니다 💾','success'); });
@@ -1458,7 +1476,8 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
     var c2 = Math.max(posA.col, posB.col);
     if (c2 - c1 !== 1) return false; // 열 차이가 1이어야 함
 
-    if (maxCol % 2 === 0) {
+    var totalCols = (typeof STATE !== 'undefined' && STATE.cols) ? STATE.cols : maxCol;
+    if (totalCols % 2 === 0) {
       // 짝수열인 경우: 1-2열, 3-4열, 5-6열 (작은 열 번호가 홀수여야 함)
       return c1 % 2 === 1;
     } else {
@@ -1477,7 +1496,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
     return false;
   }
 
-  // 5. 페널티 계산 함수 (규칙 위반 = 20,000점 초고가중치, 이전 자리 중복 = 1점 저가중치)
+  // 5. 페널티 계산 함수 (규칙 위반 = 1,000,000점 절대 가중치)
   function calcPenalty(assignment) {
     var posMap = {};
     for (var i = 0; i < assignment.length; i++) {
@@ -1498,7 +1517,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
         if (posA) {
           if (posA.row > frontMax) {
             ruleViolations++;
-            rulePenalty += 20000 + (posA.row - frontMax) * 5000;
+            rulePenalty += 1000000 + (posA.row - frontMax) * 50000;
             conflictedStudentIds[rule.studentA] = true;
           } else if (posA.row > minRow) {
             // 칠판 바로 앞 1행을 2행보다 미세하게 선호하도록 소폭 가산
@@ -1512,14 +1531,14 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
             if (!isValidTogether(posA, posB)) {
               ruleViolations++;
               var dist = Math.abs(posA.row - posB.row) + Math.abs(posA.col - posB.col);
-              rulePenalty += 20000 + dist * 1000;
+              rulePenalty += 1000000 + dist * 10000;
               conflictedStudentIds[rule.studentA] = true;
               conflictedStudentIds[rule.studentB] = true;
             }
           } else if (rule.type === 'separate') {
             if (isAdjacent(posA, posB)) {
               ruleViolations++;
-              rulePenalty += 20000;
+              rulePenalty += 1000000;
               conflictedStudentIds[rule.studentA] = true;
               conflictedStudentIds[rule.studentB] = true;
             }
@@ -1735,8 +1754,8 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
   var bestSeats = null;
   var bestPenalty = { score: Infinity, ruleViolations: Infinity, avoidViolations: Infinity };
 
-  var NUM_RESTARTS = 12;
-  var MAX_STEPS = 1500;
+  var NUM_RESTARTS = 25;
+  var MAX_STEPS = 2500;
 
   for (var restart = 0; restart < NUM_RESTARTS; restart++) {
     var currentSeats = buildInitialPlacement();
@@ -1783,10 +1802,15 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
       var newPenalty = calcPenalty(currentSeats);
 
       var accept = false;
-      if (newPenalty.score < currentPenalty.score) {
+      // 규칙 위반이 줄어들면 무조건 수용, 새로운 규칙 위반을 유발하는 스왑은 거부
+      if (newPenalty.ruleViolations < currentPenalty.ruleViolations) {
         accept = true;
-      } else if (newPenalty.score === currentPenalty.score && Math.random() < 0.20) {
-        accept = true;
+      } else if (newPenalty.ruleViolations === currentPenalty.ruleViolations) {
+        if (newPenalty.score < currentPenalty.score) {
+          accept = true;
+        } else if (newPenalty.score === currentPenalty.score && Math.random() < 0.20) {
+          accept = true;
+        }
       }
 
       if (accept) {
@@ -1891,7 +1915,16 @@ function renderShuffleResult(result){
           div.style.animationDelay = (Math.random()*.5)+'s';
           div.dataset.row = assigned.row;
           div.dataset.col = assigned.col;
-          div.innerHTML = '<div class="r-num">'+assigned.student.number+'번</div><div class="r-name">'+(assigned.student.name||'—')+'</div>';
+          var stNum = String(assigned.student.number).trim();
+          var badges = '';
+          (STATE.rules || []).forEach(function(ru){
+            var rA = String(ru.studentA).trim();
+            var rB = String(ru.studentB).trim();
+            if (ru.type === 'front' && rA === stNum) badges += '<span title="앞자리 규칙 적용" style="font-size:0.75rem;margin-left:2px">⬆️</span>';
+            else if (ru.type === 'separate' && (rA === stNum || rB === stNum)) badges += '<span title="인접 금지 규칙 적용" style="font-size:0.75rem;margin-left:2px">🚫</span>';
+            else if (ru.type === 'together' && (rA === stNum || rB === stNum)) badges += '<span title="짝꿍 규칙 적용" style="font-size:0.75rem;margin-left:2px">🤝</span>';
+          });
+          div.innerHTML = '<div class="r-num">'+assigned.student.number+'번'+badges+'</div><div class="r-name">'+(assigned.student.name||'—')+'</div>';
           div.draggable = true;
           // 클릭 시 수동 배정 모달 열기
           div.addEventListener('click', function(){
@@ -2127,23 +2160,85 @@ function getFreeSeats(){
 
 function assignRouletteStudent(student, freeSeats){
   var rowNums = STATE.seatLayout.filter(function(s){ return s.active; }).map(function(s){ return s.row; });
+  var colNums = STATE.seatLayout.filter(function(s){ return s.active; }).map(function(s){ return s.col; });
   var minRow = rowNums.length ? Math.min.apply(null, rowNums) : 1;
+  var maxCol = colNums.length ? Math.max.apply(null, colNums) : (STATE.cols || 6);
   var frontMax = minRow + 1;
+  var sNum = String(student.number).trim();
+
+  // 1. 앞자리 규칙 검사
   var hasFrontRule = STATE.rules.some(function(r){
-    return r.type === 'front' && String(r.studentA).trim() === String(student.number).trim();
+    return r.type === 'front' && String(r.studentA).trim() === sNum;
   });
 
-  var bestSeat = null;
-  if (hasFrontRule) {
-    var frontSeats = freeSeats.filter(function(s){ return s.row <= frontMax; });
-    if (frontSeats.length > 0) {
-      bestSeat = frontSeats[0];
+  // 2. 분리(separate) 대상 번호 모음
+  var sepOtherIds = [];
+  STATE.rules.forEach(function(r){
+    if (r.type === 'separate') {
+      if (String(r.studentA).trim() === sNum) sepOtherIds.push(String(r.studentB).trim());
+      else if (String(r.studentB).trim() === sNum) sepOtherIds.push(String(r.studentA).trim());
     }
+  });
+
+  // 3. 인접(together) 짝꿍 대상 번호
+  var togetherOtherId = null;
+  STATE.rules.forEach(function(r){
+    if (r.type === 'together') {
+      if (String(r.studentA).trim() === sNum) togetherOtherId = String(r.studentB).trim();
+      else if (String(r.studentB).trim() === sNum) togetherOtherId = String(r.studentA).trim();
+    }
+  });
+
+  var togetherPartnerSeat = null;
+  if (togetherOtherId) {
+    togetherPartnerSeat = STATE.rouletteAssigned.find(function(a){
+      return a.student && String(a.student.number).trim() === togetherOtherId;
+    });
   }
-  if (!bestSeat) {
-    bestSeat = freeSeats[0];
+
+  // 후보 좌석 정제
+  var candidates = freeSeats.slice();
+
+  // A. 짝꿍이 이미 앉아 있는 경우: 짝꿍 옆(분단 준수) 좌석 우선
+  if (togetherPartnerSeat) {
+    var partnerSeats = candidates.filter(function(s){
+      if (s.row !== togetherPartnerSeat.row) return false;
+      var c1 = Math.min(s.col, togetherPartnerSeat.col);
+      var c2 = Math.max(s.col, togetherPartnerSeat.col);
+      if (c2 - c1 !== 1) return false;
+      if (maxCol % 2 === 0) return c1 % 2 === 1;
+      return true;
+    });
+    if (partnerSeats.length > 0) candidates = partnerSeats;
   }
+
+  // B. 앞자리 규칙인 경우: 앞 1~2행 우선
+  if (hasFrontRule) {
+    var frontSeats = candidates.filter(function(s){ return s.row <= frontMax; });
+    if (frontSeats.length > 0) candidates = frontSeats;
+  }
+
+  // C. 분리 대상 학생과 인접(양옆/앞뒤)한 좌석 제외
+  if (sepOtherIds.length > 0) {
+    var safeSeats = candidates.filter(function(s){
+      for (var i = 0; i < STATE.rouletteAssigned.length; i++) {
+        var a = STATE.rouletteAssigned[i];
+        if (a.student && sepOtherIds.indexOf(String(a.student.number).trim()) >= 0) {
+          // 양옆(좌우)
+          if (a.row === s.row && Math.abs(a.col - s.col) === 1) return false;
+          // 앞뒤(상하)
+          if (a.col === s.col && Math.abs(a.row - s.row) === 1) return false;
+        }
+      }
+      return true;
+    });
+    if (safeSeats.length > 0) candidates = safeSeats;
+  }
+
+  // 후보 좌석 중 무작위 선택
+  var bestSeat = candidates[Math.floor(Math.random() * candidates.length)] || freeSeats[0];
   if(!bestSeat) return;
+
   STATE.rouletteAssigned.push({ row: bestSeat.row, col: bestSeat.col, student: student });
   STATE.currentSeating = { seats: STATE.rouletteAssigned.slice() };
   var displayName = student.name ? (student.number+'번 '+student.name) : student.number+'번';
@@ -2184,7 +2279,16 @@ function renderRouletteSeatGrid(){
           div.style.borderColor='#ffd700';
           div.style.background='linear-gradient(135deg,#0f3460,#16213e)';
           var n = assigned.student.name || ('#'+assigned.student.number);
-          div.innerHTML='<div style="color:var(--text2);font-size:.6rem">'+assigned.student.number+'번</div><div style="color:#ffd700;font-weight:700;line-height:1.2">'+n+'</div>';
+          var stNum = String(assigned.student.number).trim();
+          var badges = '';
+          (STATE.rules || []).forEach(function(ru){
+            var rA = String(ru.studentA).trim();
+            var rB = String(ru.studentB).trim();
+            if (ru.type === 'front' && rA === stNum) badges += '⬆️';
+            else if (ru.type === 'separate' && (rA === stNum || rB === stNum)) badges += '🚫';
+            else if (ru.type === 'together' && (rA === stNum || rB === stNum)) badges += '🤝';
+          });
+          div.innerHTML='<div style="color:var(--text2);font-size:.6rem">'+assigned.student.number+'번 '+(badges?badges:'')+'</div><div style="color:#ffd700;font-weight:700;line-height:1.2">'+n+'</div>';
         } else {
           div.style.borderColor='#2a2a4a'; div.style.background='var(--surface)';
           div.innerHTML='<span style="color:#2a2a4a;font-size:1.2rem">○</span>';
@@ -2243,6 +2347,12 @@ function loadHistory(){
 
     _historyData = Array.isArray(data) ? data : [];
     var list = document.getElementById('history-list');
+    var badge = document.getElementById('history-total-count');
+
+    if (badge) {
+      badge.textContent = _historyData.length + '건';
+      badge.style.display = _historyData.length ? 'inline-block' : 'none';
+    }
 
     if(!_historyData.length){
       list.innerHTML='<div style="color:var(--text2);text-align:center;padding:20px">기록이 없습니다</div>';
@@ -2253,15 +2363,20 @@ function loadHistory(){
     // 서버에서 이미 최신순(reverse)으로 정렬해서 보내주므로 0부터 시작
     for(var i = 0; i < _historyData.length; i++){
       var h = _historyData[i];
-      // JSON 구조에서 배열(seats) 안전하게 추출
-      var seats = (h.layout && h.layout.seats) ? h.layout.seats : [];
+      var layout = h.layout;
+      if (typeof layout === 'string') {
+        try { layout = JSON.parse(layout); } catch(e){ layout = null; }
+      }
+      // JSON 구조에서 배열(seats) 안전하게 추출 (layout.seats 또는 layout 배열)
+      var seats = (layout && Array.isArray(layout.seats)) ? layout.seats : (Array.isArray(layout) ? layout : []);
       // 빈 자리(student 속성이 없는 자리) 제외하고 배정 학생 수 계산
       var count = seats.filter(function(s){ return s && s.student; }).length;
+      var dateDisplay = h.date || h.id || '날짜 미상';
 
       html += '<div class="history-item" onclick="viewHistoryRecord('+i+')">'
         +'<div class="history-item-info">'
-        +'<div style="font-weight:700">📅 '+h.date+'</div>'
-        +'<div class="history-meta">ID: '+h.id+' | 배정 학생: '+count+'명</div>'
+        +'<div style="font-weight:700">📅 '+dateDisplay+'</div>'
+        +'<div class="history-meta">ID: '+(h.id || '-')+' | 배정 학생: '+count+'명</div>'
         +'</div>'
         +'<div class="history-actions" onclick="event.stopPropagation()">'
         +'<button class="btn btn-secondary btn-sm" onclick="viewHistoryRecord('+i+')">🔍 열람</button>'

@@ -341,9 +341,13 @@ function saveSeating(accountId, layoutJson) {
   if (last >= 2) {
     var rows = sh.getRange(2,1,last-1,2).getValues();
     var accountRows = [];
-    rows.forEach(function(r,i){ if(r[0]===accountId) accountRows.push(i+2); });
-    if (accountRows.length > 10) {
-      var toDelete = accountRows.slice(0, accountRows.length-10);
+    var targetAcc = String(accountId).trim().toLowerCase();
+    rows.forEach(function(r,i){ 
+      if (String(r[0]).trim().toLowerCase() === targetAcc) accountRows.push(i+2); 
+    });
+    // 배치 기록을 삭제하지 않고 충분히(최대 200건) 보존
+    if (accountRows.length > 200) {
+      var toDelete = accountRows.slice(0, accountRows.length-200);
       for (var i=toDelete.length-1; i>=0; i--) sh.deleteRow(toDelete[i]);
     }
   }
@@ -520,7 +524,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
         if (posA) {
           if (posA.row > frontMax) {
             ruleViolations++;
-            rulePenalty += 20000 + (posA.row - frontMax) * 5000;
+            rulePenalty += 1000000 + (posA.row - frontMax) * 50000;
             conflictedStudentIds[rule.studentA] = true;
           } else if (posA.row > minRow) {
             rulePenalty += 1;
@@ -533,14 +537,14 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
             if (!isValidTogether(posA, posB)) {
               ruleViolations++;
               var dist = Math.abs(posA.row - posB.row) + Math.abs(posA.col - posB.col);
-              rulePenalty += 20000 + dist * 1000;
+              rulePenalty += 1000000 + dist * 10000;
               conflictedStudentIds[rule.studentA] = true;
               conflictedStudentIds[rule.studentB] = true;
             }
           } else if (rule.type === 'separate') {
             if (isAdjacent(posA, posB)) {
               ruleViolations++;
-              rulePenalty += 20000;
+              rulePenalty += 1000000;
               conflictedStudentIds[rule.studentA] = true;
               conflictedStudentIds[rule.studentB] = true;
             }
@@ -756,8 +760,8 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
   var bestSeats = null;
   var bestPenalty = { score: Infinity, ruleViolations: Infinity, avoidViolations: Infinity };
 
-  var NUM_RESTARTS = 12;
-  var MAX_STEPS = 1500;
+  var NUM_RESTARTS = 25;
+  var MAX_STEPS = 2500;
 
   for (var restart = 0; restart < NUM_RESTARTS; restart++) {
     var currentSeats = buildInitialPlacement();
@@ -803,10 +807,15 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
       var newPenalty = calcPenalty(currentSeats);
 
       var accept = false;
-      if (newPenalty.score < currentPenalty.score) {
+      // 규칙 위반이 줄어들면 무조건 수용, 새로운 규칙 위반을 유발하는 스왑은 거부
+      if (newPenalty.ruleViolations < currentPenalty.ruleViolations) {
         accept = true;
-      } else if (newPenalty.score === currentPenalty.score && Math.random() < 0.20) {
-        accept = true;
+      } else if (newPenalty.ruleViolations === currentPenalty.ruleViolations) {
+        if (newPenalty.score < currentPenalty.score) {
+          accept = true;
+        } else if (newPenalty.score === currentPenalty.score && Math.random() < 0.20) {
+          accept = true;
+        }
       }
 
       if (accept) {
