@@ -353,13 +353,15 @@ function saveSeating(accountId, layoutJson) {
 function getLastSeatingMap(accountId) {
   var history = getSeatingHistory(accountId);
   if (!history.length) return {};
-  var last = history[history.length-1];
+  // getSeatingHistory()는 최신순(reverse)으로 반환하므로 0번 인덱스가 가장 최신 기록입니다.
+  var last = history[0];
   var map  = {};
-  if (last.layout && last.layout.seats) {
-    last.layout.seats.forEach(function(seat){
-      if (seat.student) map[seat.student.number+''] = { row:seat.row, col:seat.col };
-    });
-  }
+  var seats = (last.layout && last.layout.seats) ? last.layout.seats : (Array.isArray(last.layout) ? last.layout : []);
+  seats.forEach(function(seat){
+    if (seat && seat.student) {
+      map[seat.student.number + ''] = { row: seat.row, col: seat.col };
+    }
+  });
   return map;
 }
 
