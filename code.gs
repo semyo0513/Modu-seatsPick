@@ -393,72 +393,321 @@ function saveConfig(accountId, cfg) {
 }
 
 // ──────────────────────────────────────────────
-// 랜덤 배치
+// 랜덤 배치 (규칙 우선 제약 충족 최적화 솔버)
 // ──────────────────────────────────────────────
 function generateRandomSeating(accountId, seatLayout, students, rules, avoidLastSeating) {
   var activeSeats      = seatLayout.filter(function(s){ return s.active; });
   var eligibleStudents = students.filter(function(s){ return !s.excluded; });
   var lastMap = (avoidLastSeating && accountId) ? getLastSeatingMap(accountId) : {};
 
+  return solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap);
+}
+
+function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
+  if (!activeSeats || !activeSeats.length || !eligibleStudents || !eligibleStudents.length) {
+    return { ok: true, seats: [] };
+  }
+
   // 활성 좌석의 최소 행 번호 계산 (칠판 쪽 = 행 번호가 가장 작은 쪽)
   var rowNums = activeSeats.map(function(s){ return s.row; });
-  var minRow = rowNums.length ? Math.min.apply(null, rowNums) : 1;
+  var minRow = Math.min.apply(null, rowNums);
+  var frontMax = minRow + 1; // 앞 2행
 
-  var MAX_ATTEMPTS = 500;
-  for (var attempt=0; attempt<MAX_ATTEMPTS; attempt++) {
-    var shuffled = shuffleArray(eligibleStudents.slice());
-    var result   = assignSeats(activeSeats, shuffled);
-    if (checkRules(result, rules, minRow) && checkAvoidLast(result, lastMap)) return { ok:true, seats:result };
+  function normId(val) {
+    return (val !== undefined && val !== null) ? String(val).trim() : '';
   }
-  var shuffled = shuffleArray(eligibleStudents.slice());
-  return { ok:true, seats:assignSeats(activeSeats, shuffled), warning:'일부 규칙을 충족하지 못했습니다.' };
-}
 
-function assignSeats(activeSeats, students) {
-  return activeSeats.map(function(seat, i){
-    return { row:seat.row, col:seat.col, student: i<students.length ? students[i] : null };
+  // 규칙 정제 및 표준화
+  var cleanRules = (rules || []).filter(function(r){
+    if (!r || !r.type) return false;
+    if (r.type === 'front') return normId(r.studentA) !== '';
+    return normId(r.studentA) !== '' && normId(r.studentB) !== '';
+  }).map(function(r){
+    return {
+      type: r.type,
+      studentA: normId(r.studentA),
+      studentB: normId(r.studentB)
+    };
   });
-}
 
-function checkRules(seats, rules, minRow) {
-  if (!rules || rules.length===0) return true;
-  // minRow가 없으면 1로 폴백 (칠판 = 가장 작은 행 번호)
-  var frontMin = (typeof minRow === 'number') ? minRow : 1;
-  var frontMax = frontMin + 1; // 앞 2행을 앞자리로 간주
-  var posMap = {};
-  seats.forEach(function(s){ if(s.student) posMap[s.student.number+'']={row:s.row,col:s.col}; });
-  return rules.every(function(rule){
-    var posA = posMap[rule.studentA+''];
-    if (rule.type==='front') {
-      if (!posA) return true;
-      // 칠판 쪽(행 번호가 작은 쪽) 1~2행에 배치되어야 함
-      return posA.row <= frontMax;
+  // 페널티 계산 함수 (규칙 위반 = 초고가중치, 이전 자리 중복 = 저가중치)
+  function calcPenalty(assignment) {
+    var posMap = {};
+    for (var i = 0; i < assignment.length; i++) {
+      var s = assignment[i];
+      if (s.student) {
+        posMap[normId(s.student.number)] = s;
+      }
     }
-    var posB = posMap[rule.studentB+''];
-    if (!posA || !posB) return true;
-    var adjacent = Math.abs(posA.row-posB.row)+Math.abs(posA.col-posB.col) <= 1;
-    if (rule.type==='separate') return !adjacent;
-    if (rule.type==='together') return adjacent;
-    return true;
-  });
-}
 
-function checkAvoidLast(seats, lastMap) {
-  if (!lastMap || Object.keys(lastMap).length===0) return true;
-  return seats.every(function(s){
-    if (!s.student) return true;
-    var last = lastMap[s.student.number+''];
-    if (!last) return true;
-    return !(last.row===s.row && last.col===s.col);
-  });
-}
+    var ruleViolations = 0;
+    var rulePenalty = 0;
 
-function shuffleArray(arr) {
-  for (var i=arr.length-1; i>0; i--) {
-    var j = Math.floor(Math.random()*(i+1));
-    var tmp=arr[i]; arr[i]=arr[j]; arr[j]=tmp;
+    for (var r = 0; r < cleanRules.length; r++) {
+      var rule = cleanRules[r];
+      var posA = posMap[rule.studentA];
+      if (rule.type === 'front') {
+        if (posA) {
+          if (posA.row > frontMax) {
+            ruleViolations++;
+            rulePenalty += 1000 + (posA.row - frontMax) * 500;
+          }
+        }
+      } else {
+        var posB = posMap[rule.studentB];
+        if (posA && posB) {
+          var dist = Math.abs(posA.row - posB.row) + Math.abs(posA.col - posB.col);
+          if (rule.type === 'together') {
+            if (dist > 1) {
+              ruleViolations++;
+              rulePenalty += 1000 + (dist - 1) * 300;
+            }
+          } else if (rule.type === 'separate') {
+            if (dist <= 1) {
+              ruleViolations++;
+              rulePenalty += 1000 + (2 - dist) * 500;
+            }
+          }
+        }
+      }
+    }
+
+    var avoidViolations = 0;
+    if (lastMap && Object.keys(lastMap).length > 0) {
+      for (var i = 0; i < assignment.length; i++) {
+        var st = assignment[i].student;
+        if (st) {
+          var last = lastMap[normId(st.number)];
+          if (last && last.row === assignment[i].row && last.col === assignment[i].col) {
+            avoidViolations++;
+          }
+        }
+      }
+    }
+
+    return {
+      ruleViolations: ruleViolations,
+      rulePenalty: rulePenalty,
+      avoidViolations: avoidViolations,
+      score: rulePenalty * 10000 + avoidViolations
+    };
   }
-  return arr;
+
+  function shuffle(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  // 1단계: 규칙 우선 스마트 초기 배치
+  function buildInitialPlacement() {
+    var seats = activeSeats.map(function(s){
+      return { row: s.row, col: s.col, student: null };
+    });
+
+    var studentsToPlace = shuffle(eligibleStudents.slice());
+    var studentMap = {};
+    for (var i = 0; i < studentsToPlace.length; i++) {
+      studentMap[normId(studentsToPlace[i].number)] = studentsToPlace[i];
+    }
+
+    var placedStudentNums = {};
+    var occupiedSeatIndices = {};
+
+    function getEmptySeatIndices(filterFn) {
+      var res = [];
+      for (var i = 0; i < seats.length; i++) {
+        if (!occupiedSeatIndices[i]) {
+          if (!filterFn || filterFn(seats[i])) {
+            res.push(i);
+          }
+        }
+      }
+      return res;
+    }
+
+    // A. '함께 앉기(together)' 클러스터 추출
+    var togetherRules = cleanRules.filter(function(r){ return r.type === 'together'; });
+    var clusters = [];
+    for (var t = 0; t < togetherRules.length; t++) {
+      var r = togetherRules[t];
+      var sA = r.studentA;
+      var sB = r.studentB;
+      if (!studentMap[sA] || !studentMap[sB]) continue;
+
+      var cluster = null;
+      for (var c = 0; c < clusters.length; c++) {
+        if (clusters[c].indexOf(sA) >= 0 || clusters[c].indexOf(sB) >= 0) {
+          cluster = clusters[c];
+          break;
+        }
+      }
+      if (!cluster) {
+        cluster = [];
+        clusters.push(cluster);
+      }
+      if (cluster.indexOf(sA) < 0) cluster.push(sA);
+      if (cluster.indexOf(sB) < 0) cluster.push(sB);
+    }
+
+    var frontRuleStudents = {};
+    cleanRules.forEach(function(r){
+      if (r.type === 'front' && studentMap[r.studentA]) {
+        frontRuleStudents[r.studentA] = true;
+      }
+    });
+
+    // 클러스터 정렬 (앞자리 포함된 클러스터 우선 배치)
+    clusters.sort(function(a, b){
+      var aHasFront = a.some(function(id){ return frontRuleStudents[id]; });
+      var bHasFront = b.some(function(id){ return frontRuleStudents[id]; });
+      if (aHasFront && !bHasFront) return -1;
+      if (!aHasFront && bHasFront) return 1;
+      return b.length - a.length;
+    });
+
+    // 클러스터 좌석 인접 배치
+    clusters.forEach(function(members){
+      var hasFront = members.some(function(id){ return frontRuleStudents[id]; });
+      var emptyIndices = getEmptySeatIndices();
+
+      var bestPair = null;
+      for (var i = 0; i < emptyIndices.length; i++) {
+        var idx1 = emptyIndices[i];
+        var seat1 = seats[idx1];
+        if (hasFront && seat1.row > frontMax) continue;
+
+        for (var j = i + 1; j < emptyIndices.length; j++) {
+          var idx2 = emptyIndices[j];
+          var seat2 = seats[idx2];
+          if (hasFront && seat2.row > frontMax) continue;
+
+          var dist = Math.abs(seat1.row - seat2.row) + Math.abs(seat1.col - seat2.col);
+          if (dist === 1) {
+            bestPair = [idx1, idx2];
+            break;
+          }
+        }
+        if (bestPair) break;
+      }
+
+      if (bestPair) {
+        for (var m = 0; m < Math.min(members.length, bestPair.length); m++) {
+          var sNum = members[m];
+          var seatIdx = bestPair[m];
+          seats[seatIdx].student = studentMap[sNum];
+          placedStudentNums[sNum] = true;
+          occupiedSeatIndices[seatIdx] = true;
+        }
+      }
+    });
+
+    // B. 나머지 '앞자리(front)' 학생 배치
+    for (var fNum in frontRuleStudents) {
+      if (placedStudentNums[fNum]) continue;
+      var frontEmptyIndices = getEmptySeatIndices(function(s){ return s.row <= frontMax; });
+      if (frontEmptyIndices.length > 0) {
+        var pickIdx = frontEmptyIndices[Math.floor(Math.random() * frontEmptyIndices.length)];
+        seats[pickIdx].student = studentMap[fNum];
+        placedStudentNums[fNum] = true;
+        occupiedSeatIndices[pickIdx] = true;
+      }
+    }
+
+    // C. 나머지 제약 없는 일반 학생들 랜덤 배치
+    var remainingStudents = studentsToPlace.filter(function(s){
+      return !placedStudentNums[normId(s.number)];
+    });
+    remainingStudents = shuffle(remainingStudents);
+
+    var remainingEmptyIndices = shuffle(getEmptySeatIndices());
+    for (var rIdx = 0; rIdx < remainingStudents.length && rIdx < remainingEmptyIndices.length; rIdx++) {
+      var seatIdx = remainingEmptyIndices[rIdx];
+      seats[seatIdx].student = remainingStudents[rIdx];
+      occupiedSeatIndices[seatIdx] = true;
+    }
+
+    return seats;
+  }
+
+  // 2단계: 로컬 서치 (최소 충돌 Min-Conflicts 최적화 및 어닐링 탐색)
+  var bestSeats = null;
+  var bestPenalty = { score: Infinity, ruleViolations: Infinity, avoidViolations: Infinity };
+
+  var NUM_RESTARTS = 10;
+  var MAX_STEPS = 1500;
+
+  for (var restart = 0; restart < NUM_RESTARTS; restart++) {
+    var currentSeats = buildInitialPlacement();
+    var currentPenalty = calcPenalty(currentSeats);
+
+    if (currentPenalty.score < bestPenalty.score) {
+      bestPenalty = currentPenalty;
+      bestSeats = JSON.parse(JSON.stringify(currentSeats));
+      if (bestPenalty.ruleViolations === 0 && (!lastMap || bestPenalty.avoidViolations === 0)) {
+        break;
+      }
+    }
+
+    for (var step = 0; step < MAX_STEPS; step++) {
+      if (currentPenalty.ruleViolations === 0 && (!lastMap || currentPenalty.avoidViolations === 0)) {
+        break;
+      }
+
+      // 충돌 발생 좌석 위주 또는 무작위 2개 좌석 교환
+      var idxA = Math.floor(Math.random() * currentSeats.length);
+      var idxB = Math.floor(Math.random() * currentSeats.length);
+      while (idxB === idxA && currentSeats.length > 1) {
+        idxB = Math.floor(Math.random() * currentSeats.length);
+      }
+
+      var tmp = currentSeats[idxA].student;
+      currentSeats[idxA].student = currentSeats[idxB].student;
+      currentSeats[idxB].student = tmp;
+
+      var newPenalty = calcPenalty(currentSeats);
+
+      var accept = false;
+      if (newPenalty.score < currentPenalty.score) {
+        accept = true;
+      } else if (newPenalty.score === currentPenalty.score && Math.random() < 0.20) {
+        accept = true; // 정체 상태 탈출 무작위 수용
+      }
+
+      if (accept) {
+        currentPenalty = newPenalty;
+        if (currentPenalty.score < bestPenalty.score) {
+          bestPenalty = currentPenalty;
+          bestSeats = JSON.parse(JSON.stringify(currentSeats));
+          if (bestPenalty.ruleViolations === 0 && (!lastMap || bestPenalty.avoidViolations === 0)) {
+            break;
+          }
+        }
+      } else {
+        // 롤백
+        currentSeats[idxB].student = currentSeats[idxA].student;
+        currentSeats[idxA].student = tmp;
+      }
+    }
+
+    if (bestPenalty.ruleViolations === 0 && (!lastMap || bestPenalty.avoidViolations === 0)) {
+      break;
+    }
+  }
+
+  var warningMsg = null;
+  if (bestPenalty.ruleViolations > 0) {
+    warningMsg = '일부 규칙이 서로 상충되어 가능한 최대 범위 내에서 규칙을 우선 적용했습니다.';
+  }
+
+  return {
+    ok: true,
+    seats: bestSeats || activeSeats.map(function(s){ return { row: s.row, col: s.col, student: null }; }),
+    warning: warningMsg
+  };
 }
 
 // ──────────────────────────────────────────────
