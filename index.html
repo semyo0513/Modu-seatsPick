@@ -1387,40 +1387,109 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
     return { ok: true, seats: [] };
   }
 
-  // 활성 좌석의 최소 행 번호 계산 (칠판 쪽 = 행 번호가 가장 작은 쪽)
+  // 좌석 그리드 크기 및 칠판(앞자리) 행 계산
   var rowNums = activeSeats.map(function(s){ return s.row; });
+  var colNums = activeSeats.map(function(s){ return s.col; });
   var minRow = Math.min.apply(null, rowNums);
-  var frontMax = minRow + 1; // 앞 2행
+  var maxCol = Math.max.apply(null, colNums);
+  var frontMax = minRow + 1; // 앞 2행 (칠판 쪽 = 가장 작은 행 번호)
 
-  function normId(val) {
-    return (val !== undefined && val !== null) ? String(val).trim() : '';
+  // 1. 유니버설 학생 식별자 해결기 (번호, 이름, 번호+이름 등 어떤 형식이든 100% 매칭)
+  function resolveStudent(ref) {
+    if (ref === undefined || ref === null) return null;
+    var raw = String(ref).trim();
+    if (!raw) return null;
+
+    var numFromRaw = parseInt(raw.replace(/[^0-9]/g, ''), 10);
+
+    for (var i = 0; i < eligibleStudents.length; i++) {
+      var s = eligibleStudents[i];
+      var sNumStr = String(s.number).trim();
+      if (sNumStr === raw) return s;
+      if (!isNaN(numFromRaw) && parseInt(s.number, 10) === numFromRaw) {
+        if (/^\d+(\.0+)?$/.test(raw) || /^\d+번/.test(raw)) {
+          return s;
+        }
+      }
+    }
+
+    for (var i = 0; i < eligibleStudents.length; i++) {
+      var s = eligibleStudents[i];
+      var sName = s.name ? String(s.name).trim() : '';
+      if (sName && (sName === raw || raw.indexOf(sName) >= 0)) return s;
+    }
+
+    if (!isNaN(numFromRaw)) {
+      for (var i = 0; i < eligibleStudents.length; i++) {
+        if (parseInt(eligibleStudents[i].number, 10) === numFromRaw) {
+          return eligibleStudents[i];
+        }
+      }
+    }
+
+    return null;
   }
 
-  // 규칙 정제 및 표준화
-  var cleanRules = (rules || []).filter(function(r){
-    if (!r || !r.type) return false;
-    if (r.type === 'front') return normId(r.studentA) !== '';
-    return normId(r.studentA) !== '' && normId(r.studentB) !== '';
-  }).map(function(r){
-    return {
-      type: r.type,
-      studentA: normId(r.studentA),
-      studentB: normId(r.studentB)
-    };
+  // 2. 규칙 정제 및 표준 학생 식별자 매핑
+  var cleanRules = [];
+  (rules || []).forEach(function(r){
+    if (!r || !r.type) return;
+    var stA = resolveStudent(r.studentA);
+    if (!stA) return;
+    var idA = String(stA.number).trim();
+
+    if (r.type === 'front') {
+      cleanRules.push({ type: 'front', studentA: idA, studentB: '' });
+    } else {
+      var stB = resolveStudent(r.studentB);
+      if (!stB) return;
+      var idB = String(stB.number).trim();
+      if (idA !== idB) {
+        cleanRules.push({ type: r.type, studentA: idA, studentB: idB });
+      }
+    }
   });
 
-  // 페널티 계산 함수 (규칙 위반 = 초고가중치, 이전 자리 중복 = 저가중치)
+  // 3. 인접 필수 (짝꿍): 같은 행, 짝수열인 경우 1-2열, 3-4열, 5-6열 등 짝지 배치 검증
+  function isValidTogether(posA, posB) {
+    if (!posA || !posB) return false;
+    if (posA.row !== posB.row) return false; // 반드시 같은 줄이어야 짝지
+    var c1 = Math.min(posA.col, posB.col);
+    var c2 = Math.max(posA.col, posB.col);
+    if (c2 - c1 !== 1) return false; // 열 차이가 1이어야 함
+
+    if (maxCol % 2 === 0) {
+      // 짝수열인 경우: 1-2열, 3-4열, 5-6열 (작은 열 번호가 홀수여야 함)
+      return c1 % 2 === 1;
+    } else {
+      // 홀수열인 경우: 양옆으로 나란히 배치되면 됨
+      return true;
+    }
+  }
+
+  // 4. 인접 금지: 양옆(좌우) 및 앞뒤 좌석 배치 절대 금지 검증
+  function isAdjacent(posA, posB) {
+    if (!posA || !posB) return false;
+    // 양옆: 같은 행, 열 차이 1
+    if (posA.row === posB.row && Math.abs(posA.col - posB.col) === 1) return true;
+    // 앞뒤: 같은 열, 행 차이 1
+    if (posA.col === posB.col && Math.abs(posA.row - posB.row) === 1) return true;
+    return false;
+  }
+
+  // 5. 페널티 계산 함수 (규칙 위반 = 20,000점 초고가중치, 이전 자리 중복 = 1점 저가중치)
   function calcPenalty(assignment) {
     var posMap = {};
     for (var i = 0; i < assignment.length; i++) {
       var s = assignment[i];
       if (s.student) {
-        posMap[normId(s.student.number)] = s;
+        posMap[String(s.student.number).trim()] = s;
       }
     }
 
     var ruleViolations = 0;
     var rulePenalty = 0;
+    var conflictedStudentIds = {};
 
     for (var r = 0; r < cleanRules.length; r++) {
       var rule = cleanRules[r];
@@ -1429,22 +1498,30 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
         if (posA) {
           if (posA.row > frontMax) {
             ruleViolations++;
-            rulePenalty += 1000 + (posA.row - frontMax) * 500;
+            rulePenalty += 20000 + (posA.row - frontMax) * 5000;
+            conflictedStudentIds[rule.studentA] = true;
+          } else if (posA.row > minRow) {
+            // 칠판 바로 앞 1행을 2행보다 미세하게 선호하도록 소폭 가산
+            rulePenalty += 1;
           }
         }
       } else {
         var posB = posMap[rule.studentB];
         if (posA && posB) {
-          var dist = Math.abs(posA.row - posB.row) + Math.abs(posA.col - posB.col);
           if (rule.type === 'together') {
-            if (dist > 1) {
+            if (!isValidTogether(posA, posB)) {
               ruleViolations++;
-              rulePenalty += 1000 + (dist - 1) * 300;
+              var dist = Math.abs(posA.row - posB.row) + Math.abs(posA.col - posB.col);
+              rulePenalty += 20000 + dist * 1000;
+              conflictedStudentIds[rule.studentA] = true;
+              conflictedStudentIds[rule.studentB] = true;
             }
           } else if (rule.type === 'separate') {
-            if (dist <= 1) {
+            if (isAdjacent(posA, posB)) {
               ruleViolations++;
-              rulePenalty += 1000 + (2 - dist) * 500;
+              rulePenalty += 20000;
+              conflictedStudentIds[rule.studentA] = true;
+              conflictedStudentIds[rule.studentB] = true;
             }
           }
         }
@@ -1456,7 +1533,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
       for (var i = 0; i < assignment.length; i++) {
         var st = assignment[i].student;
         if (st) {
-          var last = lastMap[normId(st.number)];
+          var last = lastMap[String(st.number).trim()];
           if (last && last.row === assignment[i].row && last.col === assignment[i].col) {
             avoidViolations++;
           }
@@ -1468,6 +1545,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
       ruleViolations: ruleViolations,
       rulePenalty: rulePenalty,
       avoidViolations: avoidViolations,
+      conflictedStudentIds: conflictedStudentIds,
       score: rulePenalty * 10000 + avoidViolations
     };
   }
@@ -1481,16 +1559,15 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
     return a;
   }
 
-  // 1단계: 규칙 우선 스마트 초기 배치
+  // 6. 스마트 초기 배치
   function buildInitialPlacement() {
     var seats = activeSeats.map(function(s){
       return { row: s.row, col: s.col, student: null };
     });
 
-    var studentsToPlace = shuffle(eligibleStudents.slice());
     var studentMap = {};
-    for (var i = 0; i < studentsToPlace.length; i++) {
-      studentMap[normId(studentsToPlace[i].number)] = studentsToPlace[i];
+    for (var i = 0; i < eligibleStudents.length; i++) {
+      studentMap[String(eligibleStudents[i].number).trim()] = eligibleStudents[i];
     }
 
     var placedStudentNums = {};
@@ -1508,50 +1585,45 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
       return res;
     }
 
-    // A. '함께 앉기(together)' 클러스터 추출
-    var togetherRules = cleanRules.filter(function(r){ return r.type === 'together'; });
-    var clusters = [];
-    for (var t = 0; t < togetherRules.length; t++) {
-      var r = togetherRules[t];
-      var sA = r.studentA;
-      var sB = r.studentB;
-      if (!studentMap[sA] || !studentMap[sB]) continue;
+    function canPlaceWithoutSeparateViolation(sNum, seat) {
+      for (var r = 0; r < cleanRules.length; r++) {
+        var rule = cleanRules[r];
+        if (rule.type === 'separate') {
+          var otherId = null;
+          if (rule.studentA === sNum) otherId = rule.studentB;
+          else if (rule.studentB === sNum) otherId = rule.studentA;
 
-      var cluster = null;
-      for (var c = 0; c < clusters.length; c++) {
-        if (clusters[c].indexOf(sA) >= 0 || clusters[c].indexOf(sB) >= 0) {
-          cluster = clusters[c];
-          break;
+          if (otherId && placedStudentNums[otherId]) {
+            for (var i = 0; i < seats.length; i++) {
+              if (seats[i].student && String(seats[i].student.number).trim() === otherId) {
+                if (isAdjacent(seat, seats[i])) {
+                  return false;
+                }
+                break;
+              }
+            }
+          }
         }
       }
-      if (!cluster) {
-        cluster = [];
-        clusters.push(cluster);
-      }
-      if (cluster.indexOf(sA) < 0) cluster.push(sA);
-      if (cluster.indexOf(sB) < 0) cluster.push(sB);
+      return true;
     }
 
+    // A. '인접 필수(together)' 짝지 배치 (1-2열, 3-4열, 5-6열 분단 구조 엄격 준수)
+    var togetherRules = cleanRules.filter(function(r){ return r.type === 'together'; });
     var frontRuleStudents = {};
     cleanRules.forEach(function(r){
-      if (r.type === 'front' && studentMap[r.studentA]) {
-        frontRuleStudents[r.studentA] = true;
-      }
+      if (r.type === 'front') frontRuleStudents[r.studentA] = true;
     });
 
-    // 클러스터 정렬 (앞자리 포함된 클러스터 우선 배치)
-    clusters.sort(function(a, b){
-      var aHasFront = a.some(function(id){ return frontRuleStudents[id]; });
-      var bHasFront = b.some(function(id){ return frontRuleStudents[id]; });
-      if (aHasFront && !bHasFront) return -1;
-      if (!aHasFront && bHasFront) return 1;
-      return b.length - a.length;
-    });
+    var shuffledTogether = shuffle(togetherRules);
+    shuffledTogether.forEach(function(rule){
+      var sA = rule.studentA;
+      var sB = rule.studentB;
+      if (!studentMap[sA] || !studentMap[sB]) return;
+      if (placedStudentNums[sA] || placedStudentNums[sB]) return;
 
-    // 클러스터 좌석 인접 배치
-    clusters.forEach(function(members){
-      var hasFront = members.some(function(id){ return frontRuleStudents[id]; });
-      var emptyIndices = getEmptySeatIndices();
+      var hasFront = frontRuleStudents[sA] || frontRuleStudents[sB];
+      var emptyIndices = shuffle(getEmptySeatIndices());
 
       var bestPair = null;
       for (var i = 0; i < emptyIndices.length; i++) {
@@ -1559,46 +1631,93 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
         var seat1 = seats[idx1];
         if (hasFront && seat1.row > frontMax) continue;
 
-        for (var j = i + 1; j < emptyIndices.length; j++) {
+        for (var j = 0; j < emptyIndices.length; j++) {
+          if (i === j) continue;
           var idx2 = emptyIndices[j];
           var seat2 = seats[idx2];
           if (hasFront && seat2.row > frontMax) continue;
 
-          var dist = Math.abs(seat1.row - seat2.row) + Math.abs(seat1.col - seat2.col);
-          if (dist === 1) {
-            bestPair = [idx1, idx2];
-            break;
+          if (isValidTogether(seat1, seat2)) {
+            if (canPlaceWithoutSeparateViolation(sA, seat1) && canPlaceWithoutSeparateViolation(sB, seat2)) {
+              bestPair = [idx1, idx2];
+              break;
+            }
           }
         }
         if (bestPair) break;
       }
 
       if (bestPair) {
-        for (var m = 0; m < Math.min(members.length, bestPair.length); m++) {
-          var sNum = members[m];
-          var seatIdx = bestPair[m];
-          seats[seatIdx].student = studentMap[sNum];
-          placedStudentNums[sNum] = true;
-          occupiedSeatIndices[seatIdx] = true;
-        }
+        seats[bestPair[0]].student = studentMap[sA];
+        seats[bestPair[1]].student = studentMap[sB];
+        placedStudentNums[sA] = true;
+        placedStudentNums[sB] = true;
+        occupiedSeatIndices[bestPair[0]] = true;
+        occupiedSeatIndices[bestPair[1]] = true;
       }
     });
 
-    // B. 나머지 '앞자리(front)' 학생 배치
+    // B. 나머지 '앞자리(front)' 학생 배치 (1~2행 칠판 앞자리 전용)
     for (var fNum in frontRuleStudents) {
       if (placedStudentNums[fNum]) continue;
-      var frontEmptyIndices = getEmptySeatIndices(function(s){ return s.row <= frontMax; });
-      if (frontEmptyIndices.length > 0) {
-        var pickIdx = frontEmptyIndices[Math.floor(Math.random() * frontEmptyIndices.length)];
-        seats[pickIdx].student = studentMap[fNum];
+      if (!studentMap[fNum]) continue;
+
+      var frontEmptyIndices = shuffle(getEmptySeatIndices(function(s){ return s.row <= frontMax; }));
+      var chosenIdx = -1;
+      for (var f = 0; f < frontEmptyIndices.length; f++) {
+        var idx = frontEmptyIndices[f];
+        if (canPlaceWithoutSeparateViolation(fNum, seats[idx])) {
+          chosenIdx = idx;
+          break;
+        }
+      }
+      if (chosenIdx < 0 && frontEmptyIndices.length > 0) {
+        chosenIdx = frontEmptyIndices[0];
+      }
+
+      if (chosenIdx >= 0) {
+        seats[chosenIdx].student = studentMap[fNum];
         placedStudentNums[fNum] = true;
-        occupiedSeatIndices[pickIdx] = true;
+        occupiedSeatIndices[chosenIdx] = true;
       }
     }
 
-    // C. 나머지 제약 없는 일반 학생들 랜덤 배치
-    var remainingStudents = studentsToPlace.filter(function(s){
-      return !placedStudentNums[normId(s.number)];
+    // C. 나머지 분리(separate) 규칙 대상 학생 배치 (양옆 앞뒤 회피 우선)
+    var separateStudents = {};
+    cleanRules.forEach(function(r){
+      if (r.type === 'separate') {
+        if (!placedStudentNums[r.studentA]) separateStudents[r.studentA] = true;
+        if (!placedStudentNums[r.studentB]) separateStudents[r.studentB] = true;
+      }
+    });
+
+    for (var sepNum in separateStudents) {
+      if (placedStudentNums[sepNum]) continue;
+      if (!studentMap[sepNum]) continue;
+
+      var emptyIndices = shuffle(getEmptySeatIndices());
+      var chosenIdx = -1;
+      for (var e = 0; e < emptyIndices.length; e++) {
+        var idx = emptyIndices[e];
+        if (canPlaceWithoutSeparateViolation(sepNum, seats[idx])) {
+          chosenIdx = idx;
+          break;
+        }
+      }
+      if (chosenIdx < 0 && emptyIndices.length > 0) {
+        chosenIdx = emptyIndices[0];
+      }
+
+      if (chosenIdx >= 0) {
+        seats[chosenIdx].student = studentMap[sepNum];
+        placedStudentNums[sepNum] = true;
+        occupiedSeatIndices[chosenIdx] = true;
+      }
+    }
+
+    // D. 나머지 일반 학생들 무작위 배치
+    var remainingStudents = eligibleStudents.filter(function(s){
+      return !placedStudentNums[String(s.number).trim()];
     });
     remainingStudents = shuffle(remainingStudents);
 
@@ -1612,11 +1731,11 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
     return seats;
   }
 
-  // 2단계: 로컬 서치 (최소 충돌 Min-Conflicts 최적화 및 어닐링 탐색)
+  // 7. 로컬 서치 (충돌 표적형 Min-Conflicts 최적화 및 어닐링 탐색)
   var bestSeats = null;
   var bestPenalty = { score: Infinity, ruleViolations: Infinity, avoidViolations: Infinity };
 
-  var NUM_RESTARTS = 10;
+  var NUM_RESTARTS = 12;
   var MAX_STEPS = 1500;
 
   for (var restart = 0; restart < NUM_RESTARTS; restart++) {
@@ -1636,8 +1755,22 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
         break;
       }
 
-      // 충돌 발생 좌석 위주 또는 무작위 2개 좌석 교환
-      var idxA = Math.floor(Math.random() * currentSeats.length);
+      // 충돌 발생 좌석 우선 표적 교환
+      var idxA = -1;
+      var conflictedIds = Object.keys(currentPenalty.conflictedStudentIds || {});
+      if (conflictedIds.length > 0 && Math.random() < 0.85) {
+        var targetId = conflictedIds[Math.floor(Math.random() * conflictedIds.length)];
+        for (var i = 0; i < currentSeats.length; i++) {
+          if (currentSeats[i].student && String(currentSeats[i].student.number).trim() === targetId) {
+            idxA = i;
+            break;
+          }
+        }
+      }
+      if (idxA < 0) {
+        idxA = Math.floor(Math.random() * currentSeats.length);
+      }
+
       var idxB = Math.floor(Math.random() * currentSeats.length);
       while (idxB === idxA && currentSeats.length > 1) {
         idxB = Math.floor(Math.random() * currentSeats.length);
@@ -1653,7 +1786,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
       if (newPenalty.score < currentPenalty.score) {
         accept = true;
       } else if (newPenalty.score === currentPenalty.score && Math.random() < 0.20) {
-        accept = true; // 정체 상태 탈출 무작위 수용
+        accept = true;
       }
 
       if (accept) {
