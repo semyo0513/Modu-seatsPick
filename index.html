@@ -335,6 +335,43 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
   </div>
 </div>
 
+<!-- ══════════ API 및 시트 설정 모달 ══════════ -->
+<div class="modal-bg" id="api-modal-bg">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-title">⚙️ 구글 스프레드시트 및 API 설정</div>
+    <p style="font-size:0.85rem;color:var(--text2);margin-bottom:14px">
+      데이터가 올바른 구글 스프레드시트에 저장되고 있는지 확인하고, 배포된 웹앱 API URL을 설정할 수 있습니다.
+    </p>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="font-size:0.85rem;font-weight:700;color:var(--teal);margin-bottom:6px">📊 현재 연동 구글 스프레드시트</div>
+      <div style="font-size:0.8rem;color:var(--text);word-break:break-all;margin-bottom:8px">
+        ID: <code>1b7bw-7D_OeUtvdVlEbMIge5qewmHCKDa8VyV2O9Jtp8</code>
+      </div>
+      <a href="https://docs.google.com/spreadsheets/d/1b7bw-7D_OeUtvdVlEbMIge5qewmHCKDa8VyV2O9Jtp8/edit?gid=318028876#gid=318028876" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none">
+        🔗 스프레드시트 바로 열기 ↗
+      </a>
+    </div>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label style="display:block;font-size:0.85rem;margin-bottom:4px;font-weight:600">구글 앱스 스크립트(GAS) 웹앱 URL</label>
+      <input type="text" id="config-api-url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;font-size:0.82rem;font-family:monospace;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+      <div style="font-size:0.75rem;color:var(--text2);margin-top:4px">
+        * Apps Script에서 <strong>배포 > 새 배포 (또는 배포 관리) > 웹앱</strong> 배포 후 생성된 URL을 입력합니다.
+      </div>
+    </div>
+
+    <div id="api-test-status" style="display:none;padding:8px 12px;border-radius:6px;font-size:0.82rem;margin-bottom:12px"></div>
+
+    <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="testApiConfig()">🔌 연결 테스트</button>
+      <button class="btn btn-secondary btn-sm" onclick="resetApiConfig()">↺ 기본값 복원</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeApiConfigModal()">닫기</button>
+      <button class="btn btn-success btn-sm" onclick="saveApiConfig()">💾 설정 저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════ 인증 화면 ══════════ -->
 <div id="auth-screen">
   <div class="auth-box">
@@ -364,6 +401,12 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
       <div class="auth-divider">또는</div>
       <button class="auth-btn auth-btn-guest" onclick="doGuest()">👤 비회원으로 시작 (저장 안 됨)</button>
     </div>
+    <!-- 시트 및 API 설정 링크 -->
+    <div style="margin-top:16px;text-align:center;border-top:1px solid var(--border);padding-top:12px">
+      <button class="btn btn-secondary btn-sm" onclick="openApiConfigModal()" style="font-size:0.8rem;padding:6px 14px">
+        ⚙️ 구글 시트 / API URL 설정
+      </button>
+    </div>
   </div>
 </div>
 
@@ -380,6 +423,7 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
     <button class="nav-btn" onclick="showPanel('panel-history')" data-panel="panel-history">📚 기록</button>
   </nav>
   <div class="user-area">
+    <button class="btn btn-secondary btn-sm" onclick="openApiConfigModal()" title="구글 시트 및 API URL 설정" style="padding:6px 10px;font-size:0.75rem">⚙️ 설정</button>
     <div class="user-badge" id="user-badge" onclick="onUserBadgeClick()" title="계정 정보 변경">
       <div class="dot guest" id="user-dot"></div>
       <span class="user-name" id="user-name-label">비회원</span>
@@ -641,8 +685,135 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
 // ══════════════════════════════════════════════
 // API 설정 및 google 에뮬레이터
 // ══════════════════════════════════════════════
-// 백엔드 GAS Web App URL (고정)
-const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwHrJGrirr-6X0ORl3brU-j81bwAx04sylJDf3-qcnKeXTBkvdeyz1uMpY4idmY6zE/exec';
+const DEFAULT_GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwHrJGrirr-6X0ORl3brU-j81bwAx04sylJDf3-qcnKeXTBkvdeyz1uMpY4idmY6zE/exec';
+
+function getGasApiUrl() {
+  try {
+    var custom = localStorage.getItem('MODU_SEATS_API_URL');
+    if (custom && custom.trim() !== '') return custom.trim();
+  } catch(e){}
+  return DEFAULT_GAS_API_URL;
+}
+
+function openApiConfigModal() {
+  var input = document.getElementById('config-api-url');
+  if (input) input.value = getGasApiUrl();
+  var st = document.getElementById('api-test-status');
+  if (st) { st.style.display = 'none'; st.textContent = ''; }
+  var modal = document.getElementById('api-modal-bg');
+  if (modal) modal.classList.add('show');
+}
+
+function closeApiConfigModal() {
+  var modal = document.getElementById('api-modal-bg');
+  if (modal) modal.classList.remove('show');
+}
+
+function saveApiConfig() {
+  var input = document.getElementById('config-api-url');
+  if (!input) return;
+  var val = input.value.trim();
+  if (!val) {
+    localStorage.removeItem('MODU_SEATS_API_URL');
+    toast('기본 웹앱 URL로 재설정되었습니다.', 'info');
+  } else {
+    localStorage.setItem('MODU_SEATS_API_URL', val);
+    toast('API URL이 저장되었습니다 💾', 'success');
+  }
+  closeApiConfigModal();
+  // 데이터 새로고침
+  if (STATE.user) initApp();
+}
+
+function resetApiConfig() {
+  var input = document.getElementById('config-api-url');
+  if (input) input.value = DEFAULT_GAS_API_URL;
+  localStorage.removeItem('MODU_SEATS_API_URL');
+  toast('기본 URL로 복원되었습니다.', 'info');
+}
+
+function testApiConfig() {
+  var input = document.getElementById('config-api-url');
+  var testUrl = input ? input.value.trim() : getGasApiUrl();
+  var statusEl = document.getElementById('api-test-status');
+  if (!statusEl) return;
+  
+  statusEl.style.display = 'block';
+  statusEl.style.background = 'rgba(0,180,216,0.15)';
+  statusEl.style.color = 'var(--teal)';
+  statusEl.textContent = '⏳ 백엔드 API 연결 테스트 중...';
+
+  var reqUrl = testUrl + (testUrl.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now();
+  fetch(reqUrl, {
+    method: 'POST',
+    mode: 'cors',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'initSheets', payload: {} })
+  })
+  .then(function(res){
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  })
+  .then(function(data){
+    if (data && data.ok) {
+      statusEl.style.background = 'rgba(6,214,160,0.18)';
+      statusEl.style.color = '#06d6a0';
+      statusEl.textContent = '✅ 연결 성공! 스프레드시트와 정상적으로 통신되었습니다.';
+    } else {
+      statusEl.style.background = 'rgba(255,215,0,0.18)';
+      statusEl.style.color = 'var(--gold)';
+      statusEl.textContent = '⚠️ 응답 수신됨 (결과: ' + JSON.stringify(data) + ')';
+    }
+  })
+  .catch(function(err){
+    statusEl.style.background = 'rgba(233,69,96,0.18)';
+    statusEl.style.color = '#e94560';
+    statusEl.textContent = '❌ 연결 실패: ' + err.message + ' (웹앱 배포 권한이 [모든 사람]인지 확인해주세요)';
+  });
+}
+
+// ──────────────────────────────────────────────
+// 유니버설 학생 식별자 해결기 (번호, 이름, 번호+이름 모두 100% 매칭)
+// ──────────────────────────────────────────────
+function resolveStudentUniversal(ref, studentList) {
+  var list = studentList || STATE.students || [];
+  if (ref === undefined || ref === null) return null;
+  var raw = String(ref).trim();
+  if (!raw) return null;
+
+  // 1. 번호 정확 매칭
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i];
+    if (String(s.number).trim() === raw) return s;
+  }
+
+  // 2. 숫자 추출 매칭 (예: "1번", "1.0", 1)
+  var numFromRaw = parseInt(raw.replace(/[^0-9]/g, ''), 10);
+  if (!isNaN(numFromRaw)) {
+    for (var i = 0; i < list.length; i++) {
+      if (parseInt(list[i].number, 10) === numFromRaw) {
+        if (/^\d+(\.0+)?$/.test(raw) || /^\d+번/.test(raw)) return list[i];
+      }
+    }
+  }
+
+  // 3. 이름 매칭
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i];
+    var sName = s.name ? String(s.name).trim() : '';
+    if (sName && (sName === raw || raw.indexOf(sName) >= 0 || sName.indexOf(raw) >= 0)) return s;
+  }
+
+  // 4. 번호 폴백
+  if (!isNaN(numFromRaw)) {
+    for (var i = 0; i < list.length; i++) {
+      if (parseInt(list[i].number, 10) === numFromRaw) return list[i];
+    }
+  }
+
+  return null;
+}
 
 // google.script.run 에뮬레이터 정의
 const google = {
@@ -660,7 +831,8 @@ const google = {
           return this;
         },
         dispatch: function(action, payload) {
-          var reqUrl = GAS_API_URL + (GAS_API_URL.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now();
+          var apiUrl = getGasApiUrl();
+          var reqUrl = apiUrl + (apiUrl.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now();
           fetch(reqUrl, {
             method: 'POST',
             mode: 'cors',
@@ -1313,15 +1485,15 @@ function renderRuleList(){
   list.innerHTML = STATE.rules.map(function(r, i){
     var typeLabel = r.type==='separate'?'🚫 분리':r.type==='together'?'🤝 인접':'⬆️ 앞자리';
     var typeClass = r.type==='separate'?'separate':r.type==='together'?'together':'front';
-    var sA = STATE.students.find(function(s){ return String(s.number).trim() == String(r.studentA).trim(); });
-    var sB = STATE.students.find(function(s){ return String(s.number).trim() == String(r.studentB).trim(); });
-    var nameA = sA ? (sA.number+'번'+(sA.name?' '+sA.name:'')) : r.studentA+'번';
-    var nameB = sB ? (sB.number+'번'+(sB.name?' '+sB.name:'')) : r.studentB+'번';
+    var sA = resolveStudentUniversal(r.studentA);
+    var sB = resolveStudentUniversal(r.studentB);
+    var nameA = sA ? (sA.number+'번 '+(sA.name||'')) : (r.studentA ? r.studentA+'번' : '미상');
+    var nameB = sB ? (sB.number+'번 '+(sB.name||'')) : (r.studentB ? r.studentB+'번' : '미상');
     var desc = nameA + (r.type!=='front'?' ↔ '+nameB:'');
     return '<div class="rule-item">'
       +'<span class="rule-type-badge '+typeClass+'">'+typeLabel+'</span>'
-      +'<span style="flex:1;font-size:.9rem">'+desc+'</span>'
-      +(r.memo?'<span style="font-size:.8rem;color:var(--text2)">'+r.memo+'</span>':'')
+      +'<span style="flex:1;font-size:.9rem;font-weight:600">'+desc+'</span>'
+      +(r.memo?'<span style="font-size:.78rem;color:var(--gold);background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.25);padding:2px 8px;border-radius:4px">📝 '+r.memo+'</span>':'')
       +'<button class="btn btn-danger btn-sm" onclick="deleteRule('+i+')">✕</button>'
       +'</div>';
   }).join('');
@@ -1991,14 +2163,36 @@ function renderShuffleResult(result){
           div.dataset.col = assigned.col;
           var stNum = String(assigned.student.number).trim();
           var badges = '';
+          var ruleMemos = [];
           (STATE.rules || []).forEach(function(ru){
-            var rA = String(ru.studentA).trim();
-            var rB = String(ru.studentB).trim();
-            if (ru.type === 'front' && rA === stNum) badges += '<span title="앞자리 규칙 적용" style="font-size:0.75rem;margin-left:2px">⬆️</span>';
-            else if (ru.type === 'separate' && (rA === stNum || rB === stNum)) badges += '<span title="인접 금지 규칙 적용" style="font-size:0.75rem;margin-left:2px">🚫</span>';
-            else if (ru.type === 'together' && (rA === stNum || rB === stNum)) badges += '<span title="짝꿍 규칙 적용" style="font-size:0.75rem;margin-left:2px">🤝</span>';
+            var targetA = resolveStudentUniversal(ru.studentA);
+            var targetB = resolveStudentUniversal(ru.studentB);
+            var isA = targetA && String(targetA.number).trim() === stNum;
+            var isB = targetB && String(targetB.number).trim() === stNum;
+
+            if (ru.type === 'front' && isA) {
+              badges += '<span title="앞자리 규칙 적용' + (ru.memo ? ' (' + ru.memo + ')' : '') + '" style="font-size:0.75rem;margin-left:2px">⬆️</span>';
+              ruleMemos.push('⬆️ 앞자리' + (ru.memo ? ': ' + ru.memo : ''));
+            } else if (ru.type === 'separate' && (isA || isB)) {
+              var partner = isA ? (targetB ? (targetB.name || targetB.number+'번') : ru.studentB) : (targetA ? (targetA.name || targetA.number+'번') : ru.studentA);
+              badges += '<span title="인접 금지: ' + partner + (ru.memo ? ' (' + ru.memo + ')' : '') + '" style="font-size:0.75rem;margin-left:2px">🚫</span>';
+              ruleMemos.push('🚫 분리(' + partner + ')' + (ru.memo ? ': ' + ru.memo : ''));
+            } else if (ru.type === 'together' && (isA || isB)) {
+              var partner = isA ? (targetB ? (targetB.name || targetB.number+'번') : ru.studentB) : (targetA ? (targetA.name || targetA.number+'번') : ru.studentA);
+              badges += '<span title="짝꿍: ' + partner + (ru.memo ? ' (' + ru.memo + ')' : '') + '" style="font-size:0.75rem;margin-left:2px">🤝</span>';
+              ruleMemos.push('🤝 짝꿍(' + partner + ')' + (ru.memo ? ': ' + ru.memo : ''));
+            }
           });
-          div.innerHTML = '<div class="r-num">'+assigned.student.number+'번'+badges+'</div><div class="r-name">'+(assigned.student.name||'—')+'</div>';
+
+          var memoTag = '';
+          if (ruleMemos.length) {
+            memoTag = '<div style="font-size:0.62rem;color:var(--gold);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70px" title="' + ruleMemos.join('\n') + '">📌 ' + ruleMemos[0] + '</div>';
+          }
+
+          div.innerHTML = '<div class="r-num">'+assigned.student.number+'번'+badges+'</div><div class="r-name">'+(assigned.student.name||'—')+'</div>' + memoTag;
+          if (ruleMemos.length) {
+            div.title = assigned.student.number + '번 ' + (assigned.student.name||'') + '\n' + ruleMemos.join('\n');
+          }
           div.draggable = true;
           // 클릭 시 수동 배정 모달 열기
           div.addEventListener('click', function(){
@@ -2114,13 +2308,17 @@ function renderAppliedRules(result, targetContainerId){
 
   rules.forEach(function(r){
     totalChecked++;
-    var sA = STATE.students.find(function(s){ return String(s.number).trim() === String(r.studentA).trim(); });
-    var sB = STATE.students.find(function(s){ return String(s.number).trim() === String(r.studentB).trim(); });
-    var nameA = sA ? (sA.number + '번 ' + (sA.name || '')) : (r.studentA + '번');
-    var nameB = sB ? (sB.number + '번 ' + (sB.name || '')) : (r.studentB + '번');
+    var sA = resolveStudentUniversal(r.studentA);
+    var sB = resolveStudentUniversal(r.studentB);
+    var nameA = sA ? (sA.number + '번 ' + (sA.name || '')) : (r.studentA ? r.studentA + '번' : '미상');
+    var nameB = sB ? (sB.number + '번 ' + (sB.name || '')) : (r.studentB ? r.studentB + '번' : '미상');
 
-    var posA = sPosMap[String(r.studentA).trim()];
-    var posB = sPosMap[String(r.studentB).trim()];
+    var posA = sA ? sPosMap[String(sA.number).trim()] : null;
+    var posB = sB ? sPosMap[String(sB.number).trim()] : null;
+
+    var memoBadge = r.memo
+      ? '<span style="background:rgba(255,215,0,0.12);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:2px 8px;border-radius:4px;font-size:0.78rem;font-weight:600">📝 기록: ' + r.memo + '</span>'
+      : '';
 
     if (r.type === 'front') {
       var isFront = posA && posA.row <= frontMax;
@@ -2136,11 +2334,11 @@ function renderAppliedRules(result, targetContainerId){
         statusBadge = '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
       }
 
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
-        + '<div style="display:flex;align-items:center;gap:8px">'
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);flex-wrap:wrap">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
         + '<span class="rule-type-badge front">⬆️ 앞자리</span>'
         + '<span style="font-weight:600;font-size:0.9rem">' + nameA + '</span>'
-        + (r.memo ? '<span style="color:var(--text2);font-size:0.8rem">(' + r.memo + ')</span>' : '')
+        + memoBadge
         + '</div>'
         + statusBadge
         + '</div>';
@@ -2162,11 +2360,11 @@ function renderAppliedRules(result, targetContainerId){
         statusBadge = '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
       }
 
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
-        + '<div style="display:flex;align-items:center;gap:8px">'
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);flex-wrap:wrap">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
         + '<span class="rule-type-badge separate">🚫 인접 금지</span>'
         + '<span style="font-weight:600;font-size:0.9rem">' + nameA + ' ↔ ' + nameB + '</span>'
-        + (r.memo ? '<span style="color:var(--text2);font-size:0.8rem">(' + r.memo + ')</span>' : '')
+        + memoBadge
         + '</div>'
         + statusBadge
         + '</div>';
@@ -2193,11 +2391,11 @@ function renderAppliedRules(result, targetContainerId){
         statusBadge = '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
       }
 
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
-        + '<div style="display:flex;align-items:center;gap:8px">'
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);flex-wrap:wrap">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
         + '<span class="rule-type-badge together">🤝 짝꿍</span>'
         + '<span style="font-weight:600;font-size:0.9rem">' + nameA + ' ↔ ' + nameB + '</span>'
-        + (r.memo ? '<span style="color:var(--text2);font-size:0.8rem">(' + r.memo + ')</span>' : '')
+        + memoBadge
         + '</div>'
         + statusBadge
         + '</div>';
@@ -2245,9 +2443,11 @@ function renderAppliedRules(result, targetContainerId){
 function saveCurrentSeating(){
   if (!STATE.user) { toast('로그인 후 저장할 수 있습니다', 'error'); return; }
   if(!STATE.currentSeating){ toast('먼저 배치를 실행해주세요','error'); return; }
-  call('saveSeating', { layout: STATE.currentSeating }, function(err){
+  var toSave = JSON.parse(JSON.stringify(STATE.currentSeating));
+  toSave.rules = STATE.rules ? JSON.parse(JSON.stringify(STATE.rules)) : [];
+  call('saveSeating', { layout: toSave }, function(err){
     if(!err){
-      toast('배치가 저장되었습니다 💾','success');
+      toast('배치와 규칙 설정 기록이 저장되었습니다 💾','success');
       if(document.getElementById('panel-history').classList.contains('active')){
         loadHistory();
       }
@@ -2305,10 +2505,27 @@ function downloadXlsx(){
   ws2['!cols'] = [{wch:8},{wch:14},{wch:6},{wch:6},{wch:12}];
   XLSX.utils.book_append_sheet(wb, ws2, '학생별자리');
 
+  // 규칙 설정 기록 시트
+  var rulesData = [['규칙ID','규칙종류','학생A','학생B','메모 기록']];
+  var rulesList = (STATE.currentSeating && STATE.currentSeating.rules && STATE.currentSeating.rules.length)
+    ? STATE.currentSeating.rules
+    : (STATE.rules || []);
+  rulesList.forEach(function(ru, idx){
+    var sA = resolveStudentUniversal(ru.studentA);
+    var sB = resolveStudentUniversal(ru.studentB);
+    var labelA = sA ? (sA.number+'번 '+(sA.name||'')) : (ru.studentA ? ru.studentA+'번' : '');
+    var labelB = sB ? (sB.number+'번 '+(sB.name||'')) : (ru.studentB ? ru.studentB+'번' : '');
+    var typeText = ru.type === 'front' ? '앞자리' : (ru.type === 'together' ? '짝꿍(인접)' : '인접금지(분리)');
+    rulesData.push([ru.id || ('R'+(idx+1)), typeText, labelA, labelB, ru.memo || '']);
+  });
+  var ws3 = XLSX.utils.aoa_to_sheet(rulesData);
+  ws3['!cols'] = [{wch:10},{wch:14},{wch:14},{wch:14},{wch:24}];
+  XLSX.utils.book_append_sheet(wb, ws3, '적용규칙설정기록');
+
   var now = new Date();
   var dateStr = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
   XLSX.writeFile(wb, '자리배치_'+dateStr+'.xlsx');
-  toast('엑셀 파일이 다운로드되었습니다 📊','success');
+  toast('엑셀 파일(규칙 기록 포함)이 다운로드되었습니다 📊','success');
 }
 
 // ══════════════════════════════════════════════
@@ -2421,15 +2638,18 @@ function assignRouletteStudent(student, freeSeats){
 
   // 1. 앞자리 규칙 검사
   var hasFrontRule = STATE.rules.some(function(r){
-    return r.type === 'front' && String(r.studentA).trim() === sNum;
+    var tA = resolveStudentUniversal(r.studentA);
+    return r.type === 'front' && tA && String(tA.number).trim() === sNum;
   });
 
   // 2. 분리(separate) 대상 번호 모음
   var sepOtherIds = [];
   STATE.rules.forEach(function(r){
     if (r.type === 'separate') {
-      if (String(r.studentA).trim() === sNum) sepOtherIds.push(String(r.studentB).trim());
-      else if (String(r.studentB).trim() === sNum) sepOtherIds.push(String(r.studentA).trim());
+      var tA = resolveStudentUniversal(r.studentA);
+      var tB = resolveStudentUniversal(r.studentB);
+      if (tA && String(tA.number).trim() === sNum && tB) sepOtherIds.push(String(tB.number).trim());
+      else if (tB && String(tB.number).trim() === sNum && tA) sepOtherIds.push(String(tA.number).trim());
     }
   });
 
@@ -2437,8 +2657,10 @@ function assignRouletteStudent(student, freeSeats){
   var togetherOtherId = null;
   STATE.rules.forEach(function(r){
     if (r.type === 'together') {
-      if (String(r.studentA).trim() === sNum) togetherOtherId = String(r.studentB).trim();
-      else if (String(r.studentB).trim() === sNum) togetherOtherId = String(r.studentA).trim();
+      var tA = resolveStudentUniversal(r.studentA);
+      var tB = resolveStudentUniversal(r.studentB);
+      if (tA && String(tA.number).trim() === sNum && tB) togetherOtherId = String(tB.number).trim();
+      else if (tB && String(tB.number).trim() === sNum && tA) togetherOtherId = String(tA.number).trim();
     }
   });
 
@@ -2535,14 +2757,31 @@ function renderRouletteSeatGrid(){
           var n = assigned.student.name || ('#'+assigned.student.number);
           var stNum = String(assigned.student.number).trim();
           var badges = '';
+          var ruleMemosR = [];
           (STATE.rules || []).forEach(function(ru){
-            var rA = String(ru.studentA).trim();
-            var rB = String(ru.studentB).trim();
-            if (ru.type === 'front' && rA === stNum) badges += '⬆️';
-            else if (ru.type === 'separate' && (rA === stNum || rB === stNum)) badges += '🚫';
-            else if (ru.type === 'together' && (rA === stNum || rB === stNum)) badges += '🤝';
+            var targetA = resolveStudentUniversal(ru.studentA);
+            var targetB = resolveStudentUniversal(ru.studentB);
+            var isA = targetA && String(targetA.number).trim() === stNum;
+            var isB = targetB && String(targetB.number).trim() === stNum;
+
+            if (ru.type === 'front' && isA) {
+              badges += '⬆️';
+              ruleMemosR.push('⬆️ 앞자리' + (ru.memo ? ': ' + ru.memo : ''));
+            } else if (ru.type === 'separate' && (isA || isB)) {
+              var partner = isA ? (targetB ? (targetB.name || targetB.number+'번') : ru.studentB) : (targetA ? (targetA.name || targetA.number+'번') : ru.studentA);
+              badges += '🚫';
+              ruleMemosR.push('🚫 분리(' + partner + ')' + (ru.memo ? ': ' + ru.memo : ''));
+            } else if (ru.type === 'together' && (isA || isB)) {
+              var partner = isA ? (targetB ? (targetB.name || targetB.number+'번') : ru.studentB) : (targetA ? (targetA.name || targetA.number+'번') : ru.studentA);
+              badges += '🤝';
+              ruleMemosR.push('🤝 짝꿍(' + partner + ')' + (ru.memo ? ': ' + ru.memo : ''));
+            }
           });
-          div.innerHTML='<div style="color:var(--text2);font-size:.6rem">'+assigned.student.number+'번 '+(badges?badges:'')+'</div><div style="color:#ffd700;font-weight:700;line-height:1.2">'+n+'</div>';
+          var memoTagR = ruleMemosR.length ? '<div style="font-size:0.55rem;color:var(--gold);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52px" title="' + ruleMemosR.join('\n') + '">📌 ' + ruleMemosR[0] + '</div>' : '';
+          div.innerHTML='<div style="color:var(--text2);font-size:.6rem">'+assigned.student.number+'번 '+(badges?badges:'')+'</div><div style="color:#ffd700;font-weight:700;line-height:1.2">'+n+'</div>' + memoTagR;
+          if (ruleMemosR.length) {
+            div.title = assigned.student.number + '번 ' + (assigned.student.name||'') + '\n' + ruleMemosR.join('\n');
+          }
         } else {
           div.style.borderColor='#2a2a4a'; div.style.background='var(--surface)';
           div.innerHTML='<span style="color:#2a2a4a;font-size:1.2rem">○</span>';
@@ -2757,6 +2996,35 @@ function viewHistoryRecord(idx){
   bodyEl.appendChild(flipBtnWrap);
   bodyEl.appendChild(wrap);
   bodyEl.insertAdjacentHTML('beforeend', tableHTML);
+
+  // 적용된 규칙 설정 기록 표시
+  var historyRules = (h.layout && Array.isArray(h.layout.rules) && h.layout.rules.length)
+    ? h.layout.rules
+    : (STATE.rules || []);
+
+  if (historyRules.length) {
+    var rulesHTML = '<div style="margin-top:16px;border-top:1px dashed var(--border);padding-top:14px">'
+      +'<div style="font-family:Jua,sans-serif;font-size:.95rem;color:var(--teal);margin-bottom:8px">📜 배치 당시 적용된 규칙 설정 기록 (' + historyRules.length + '건)</div>'
+      +'<div style="display:flex;flex-direction:column;gap:6px">'
+      + historyRules.map(function(ru){
+          var sA = resolveStudentUniversal(ru.studentA);
+          var sB = resolveStudentUniversal(ru.studentB);
+          var labelA = sA ? (sA.number+'번 '+(sA.name||'')) : (ru.studentA ? ru.studentA+'번' : '미상');
+          var labelB = sB ? (sB.number+'번 '+(sB.name||'')) : (ru.studentB ? ru.studentB+'번' : '미상');
+          var typeLabel = ru.type === 'front' ? '⬆️ 앞자리' : (ru.type === 'together' ? '🤝 짝꿍' : '🚫 분리');
+          var typeClass = ru.type === 'front' ? 'front' : (ru.type === 'together' ? 'together' : 'separate');
+          var desc = labelA + (ru.type !== 'front' ? ' ↔ ' + labelB : '');
+          return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:0.82rem;flex-wrap:wrap">'
+            +'<div style="display:flex;align-items:center;gap:6px">'
+            +'<span class="rule-type-badge '+typeClass+'" style="font-size:0.7rem;padding:2px 6px">'+typeLabel+'</span>'
+            +'<span style="font-weight:600">'+desc+'</span>'
+            +'</div>'
+            +(ru.memo ? '<span style="font-size:0.75rem;color:var(--gold);background:rgba(255,215,0,0.1);padding:2px 6px;border-radius:4px">📝 '+ru.memo+'</span>' : '')
+            +'</div>';
+        }).join('')
+      +'</div></div>';
+    bodyEl.insertAdjacentHTML('beforeend', rulesHTML);
+  }
 
   document.getElementById('history-modal-csv-btn').onclick = function(){ downloadHistoryCSV(idx); };
   document.getElementById('history-modal-bg').classList.add('show');

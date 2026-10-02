@@ -2,12 +2,28 @@
 // 창순기획 자리뽑기 - Code.gs  (계정정보 변경 기능 추가)
 // ============================================================
 
+const SPREADSHEET_ID = '1b7bw-7D_OeUtvdVlEbMIge5qewmHCKDa8VyV2O9Jtp8';
+
 const SHEET_NAME_STUDENTS = '학생목록';
 const SHEET_NAME_SEATING  = '자리배치';
 const SHEET_NAME_HISTORY  = '배치기록';
 const SHEET_NAME_RULES    = '규칙설정';
 const SHEET_NAME_CONFIG   = '설정';
 const SHEET_NAME_USERS    = '회원목록';
+
+// ──────────────────────────────────────────────
+// 스프레드시트 인스턴스 획득 (지정 ID 우선, 폴백으로 활성 시트)
+// ──────────────────────────────────────────────
+function getSpreadsheet() {
+  if (SPREADSHEET_ID && SPREADSHEET_ID.trim() !== '') {
+    try {
+      return SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+    } catch (err) {
+      console.warn('openById 실패, getActiveSpreadsheet 폴백:', err);
+    }
+  }
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
 
 function doGet(e) {
   if (e && e.parameter && e.parameter.action) {
@@ -49,7 +65,7 @@ function doPost(e) {
 // 시트 초기화
 // ──────────────────────────────────────────────
 function initSheets() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet();
   function ensureSheet(name, headers) {
     var sh = ss.getSheetByName(name);
     if (!sh) {
@@ -93,7 +109,7 @@ function signUp(payload) {
   if (!email || !password || !name) return { ok:false, error:'모든 항목을 입력해주세요.' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok:false, error:'올바른 이메일 형식이 아닙니다.' };
   if (password.length < 6) return { ok:false, error:'비밀번호는 6자 이상이어야 합니다.' };
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet();
   var sh = ss.getSheetByName(SHEET_NAME_USERS);
   var last = sh.getLastRow();
   if (last >= 2) {
@@ -113,7 +129,7 @@ function signIn(payload) {
   var email    = (payload.email    || '').trim().toLowerCase();
   var password = (payload.password || '').trim();
   if (!email || !password) return { ok:false, error:'이메일과 비밀번호를 입력해주세요.' };
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet();
   var sh = ss.getSheetByName(SHEET_NAME_USERS);
   var last = sh.getLastRow();
   if (last < 2) return { ok:false, error:'등록된 계정이 없습니다.' };
@@ -143,7 +159,7 @@ function updateAccount(payload) {
   if (!newName && !newPassword) return { ok:false, error:'변경할 이름 또는 비밀번호를 입력해주세요.' };
   if (newPassword && newPassword.length < 6) return { ok:false, error:'새 비밀번호는 6자 이상이어야 합니다.' };
 
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet();
   var sh = ss.getSheetByName(SHEET_NAME_USERS);
   var last = sh.getLastRow();
   if (last < 2) return { ok:false, error:'등록된 계정이 없습니다.' };
@@ -173,7 +189,7 @@ function changeProfile(payload) {
  
   if (!email) return { ok: false, error: '로그인 정보가 없습니다.' };
  
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet();
   var sh = ss.getSheetByName(SHEET_NAME_USERS);
   var last = sh.getLastRow();
   if (last < 2) return { ok: false, error: '계정을 찾을 수 없습니다.' };
@@ -213,12 +229,15 @@ function getStudents(accountId) {
   initSheets();
   if (!accountId) return [];
   var acc  = String(accountId).trim().toLowerCase();
-  var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_STUDENTS);
+  var sh   = getSpreadsheet().getSheetByName(SHEET_NAME_STUDENTS);
   var last = sh.getLastRow();
   if (last < 2) return [];
   var data = sh.getRange(2,1,last-1,5).getValues();
   return data
-    .filter(function(r){ return String(r[0]).trim().toLowerCase() === acc && r[1]!==''; })
+    .filter(function(r){ 
+      var rowAcc = String(r[0]).trim().toLowerCase();
+      return (rowAcc === acc || rowAcc === '' || rowAcc === 'all') && r[1] !== ''; 
+    })
     .map(function(r){
       return { number:r[1], name:r[2], memo:r[3], excluded:r[4]===true||r[4]==='TRUE'||r[4]==='제외' };
     });
@@ -228,7 +247,7 @@ function saveStudents(accountId, students) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
   var acc  = String(accountId).trim().toLowerCase();
-  var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_STUDENTS);
+  var sh   = getSpreadsheet().getSheetByName(SHEET_NAME_STUDENTS);
   var last = sh.getLastRow();
   if (last >= 2) {
     var data = sh.getRange(2,1,last-1,1).getValues();
@@ -251,25 +270,56 @@ function getRules(accountId) {
   initSheets();
   if (!accountId) return [];
   var acc  = String(accountId).trim().toLowerCase();
-  var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RULES);
+  var sh   = getSpreadsheet().getSheetByName(SHEET_NAME_RULES);
   var last = sh.getLastRow();
   if (last < 2) return [];
   var data = sh.getRange(2,1,last-1,6).getValues();
-  return data
-    .filter(function(r){ return String(r[0]).trim().toLowerCase() === acc && r[1]!==''; })
-    .map(function(r){ return { id:r[1], type:r[2], studentA:r[3], studentB:r[4], memo:r[5] }; });
+  var rules = [];
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i];
+    var rowAcc = String(r[0]).trim().toLowerCase();
+    // 로그인 계정과 일치하거나, 사용자가 시트에 직접 기입하여 계정ID가 비어있는 공통 규칙도 가져옴
+    if (rowAcc === acc || rowAcc === '' || rowAcc === 'all') {
+      var id = String(r[1] || ('R_' + (i + 1))).trim();
+      var typeRaw = String(r[2] || '').trim().toLowerCase();
+      var studentA = String(r[3] !== undefined && r[3] !== null ? r[3] : '').trim();
+      var studentB = String(r[4] !== undefined && r[4] !== null ? r[4] : '').trim();
+      var memo = String(r[5] !== undefined && r[5] !== null ? r[5] : '').trim();
+
+      if (!studentA && !studentB && !typeRaw) continue;
+
+      var type = 'separate';
+      if (typeRaw === 'front' || typeRaw.indexOf('앞') >= 0) {
+        type = 'front';
+      } else if (typeRaw === 'together' || typeRaw.indexOf('짝') >= 0 || typeRaw.indexOf('함께') >= 0 || typeRaw.indexOf('인접') >= 0) {
+        type = 'together';
+      } else {
+        type = 'separate';
+      }
+
+      rules.push({
+        id: id,
+        type: type,
+        studentA: studentA,
+        studentB: studentB,
+        memo: memo
+      });
+    }
+  }
+  return rules;
 }
 
 function saveRules(accountId, rules) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
   var acc  = String(accountId).trim().toLowerCase();
-  var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RULES);
+  var sh   = getSpreadsheet().getSheetByName(SHEET_NAME_RULES);
   var last = sh.getLastRow();
   if (last >= 2) {
     var data = sh.getRange(2,1,last-1,1).getValues();
     for (var i=data.length-1; i>=0; i--) { 
-      if(String(data[i][0]).trim().toLowerCase() === acc) sh.deleteRow(i+2); 
+      var rowAcc = String(data[i][0]).trim().toLowerCase();
+      if(rowAcc === acc || rowAcc === '') sh.deleteRow(i+2); 
     }
   }
   if (!rules || rules.length===0) return { ok:true };
@@ -286,7 +336,7 @@ function saveRules(accountId, rules) {
 function getSeatingHistory(accountId) {
   initSheets();
   if (!accountId) return [];
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_SEATING);
+  var sh = getSpreadsheet().getSheetByName(SHEET_NAME_SEATING);
   var last = sh.getLastRow();
   if (last < 2) return [];
 
@@ -299,7 +349,7 @@ function getSeatingHistory(accountId) {
   for (var i = 0; i < data.length; i++) {
     var rowAcc = String(data[i][0]).trim().toLowerCase();
     
-    if (rowAcc === acc) {
+    if (rowAcc === acc || rowAcc === '' || rowAcc === 'all') {
       var parsed = null;
       try {
         parsed = JSON.parse(data[i][3]);
@@ -328,13 +378,11 @@ function getSeatingHistory(accountId) {
   return history.reverse();
 }
 
-
-
 function saveSeating(accountId, layoutJson) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
   var acc = String(accountId).trim().toLowerCase();
-  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var ss  = getSpreadsheet();
   var sh  = ss.getSheetByName(SHEET_NAME_SEATING);
   var hSh = ss.getSheetByName(SHEET_NAME_HISTORY);
   var now = new Date();
@@ -384,13 +432,14 @@ function getConfig(accountId) {
   initSheets();
   if (!accountId) return {};
   var acc  = String(accountId).trim().toLowerCase();
-  var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
+  var sh   = getSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
   var last = sh.getLastRow();
   if (last < 2) return {};
   var data = sh.getRange(2,1,last-1,3).getValues();
   var cfg  = {};
   data.forEach(function(r){ 
-    if(String(r[0]).trim().toLowerCase() === acc && r[1]) cfg[r[1]]=r[2]; 
+    var rowAcc = String(r[0]).trim().toLowerCase();
+    if((rowAcc === acc || rowAcc === '' || rowAcc === 'all') && r[1]) cfg[r[1]]=r[2]; 
   });
   return cfg;
 }
@@ -399,12 +448,13 @@ function saveConfig(accountId, cfg) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
   var acc  = String(accountId).trim().toLowerCase();
-  var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
+  var sh   = getSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
   var last = sh.getLastRow();
   if (last >= 2) {
     var data = sh.getRange(2,1,last-1,1).getValues();
     for (var i=data.length-1; i>=0; i--) { 
-      if(String(data[i][0]).trim().toLowerCase() === acc) sh.deleteRow(i+2); 
+      var rowAcc = String(data[i][0]).trim().toLowerCase();
+      if(rowAcc === acc || rowAcc === '') sh.deleteRow(i+2); 
     }
   }
   var rows = Object.keys(cfg).map(function(k){ return [acc, k, cfg[k]]; });
