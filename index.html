@@ -565,6 +565,16 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
     <div id="shuffle-warning" style="display:none;background:rgba(255,215,0,.1);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;font-size:.85rem;color:var(--gold)"></div>
     <div id="result-classroom"></div>
     <div style="margin-top:12px"><div id="unplaced-list" style="font-size:.85rem;color:var(--text2)"></div></div>
+    <!-- 적용된 규칙 결과 표시 영역 -->
+    <div id="shuffle-applied-rules-container" style="display:none;margin-top:20px;border-top:1px dashed var(--border);padding-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-weight:700;font-size:0.95rem;color:var(--text);display:flex;align-items:center;gap:6px">
+          <span>📋 적용된 규칙 현황</span>
+          <span class="applied-rules-count badge" style="background:rgba(6,214,160,0.15);color:var(--teal);border:1px solid var(--teal);padding:2px 8px;border-radius:12px;font-size:0.75rem"></span>
+        </div>
+      </div>
+      <div class="applied-rules-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
   </div>
 </div>
 
@@ -594,6 +604,16 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
         <div style="margin-top:12px">
           <div class="card-title" style="font-size:.9rem;margin-bottom:8px">⏳ 배정 대기 중</div>
           <div id="unassigned-list"></div>
+        </div>
+        <!-- 룰렛용 적용된 규칙 표시 -->
+        <div id="roulette-applied-rules-container" style="display:none;margin-top:16px;border-top:1px dashed var(--border);padding-top:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-weight:700;font-size:0.9rem;color:var(--text);display:flex;align-items:center;gap:6px">
+              <span>📋 적용된 규칙 현황</span>
+              <span class="applied-rules-count badge" style="background:rgba(6,214,160,0.15);color:var(--teal);border:1px solid var(--teal);padding:2px 8px;border-radius:12px;font-size:0.75rem"></span>
+            </div>
+          </div>
+          <div class="applied-rules-list" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
       </div>
     </div>
@@ -1987,6 +2007,150 @@ function renderShuffleResult(result){
   var assignedNums = (result.seats||[]).filter(function(s){ return s.student; }).map(function(s){ return s.student.number; });
   var unplaced = STATE.students.filter(function(s){ return !s.excluded && assignedNums.indexOf(s.number)<0; });
   document.getElementById('unplaced-list').innerHTML = unplaced.length ? '🚶 자리 없는 학생: '+unplaced.map(getStudentDisplayName).join(', ') : '';
+
+  // 적용된 규칙 결과 표시
+  renderAppliedRules(result, 'shuffle-applied-rules-container');
+}
+
+// ══════════════════════════════════════════════
+// 적용된 규칙 현황 렌더링
+// ══════════════════════════════════════════════
+function renderAppliedRules(result, targetContainerId){
+  var container = document.getElementById(targetContainerId || 'shuffle-applied-rules-container');
+  if (!container) return;
+
+  var rules = STATE.rules || [];
+  var avoidChecked = document.getElementById('avoid-last') ? document.getElementById('avoid-last').checked : false;
+
+  if (!rules.length && !avoidChecked) {
+    container.style.display = 'none';
+    return;
+  }
+
+  var seats = (result && result.seats) ? result.seats : [];
+  var sPosMap = {};
+  seats.forEach(function(s){
+    if (s && s.student) {
+      sPosMap[String(s.student.number).trim()] = s;
+    }
+  });
+
+  var rowNums = STATE.seatLayout.filter(function(s){ return s.active; }).map(function(s){ return s.row; });
+  var colNums = STATE.seatLayout.filter(function(s){ return s.active; }).map(function(s){ return s.col; });
+  var minRow = rowNums.length ? Math.min.apply(null, rowNums) : 1;
+  var maxCol = colNums.length ? Math.max.apply(null, colNums) : (STATE.cols || 6);
+  var frontMax = minRow + 1;
+
+  var html = '';
+  var totalChecked = 0;
+  var successCount = 0;
+
+  rules.forEach(function(r){
+    totalChecked++;
+    var sA = STATE.students.find(function(s){ return String(s.number).trim() === String(r.studentA).trim(); });
+    var sB = STATE.students.find(function(s){ return String(s.number).trim() === String(r.studentB).trim(); });
+    var nameA = sA ? (sA.number + '번 ' + (sA.name || '')) : (r.studentA + '번');
+    var nameB = sB ? (sB.number + '번 ' + (sB.name || '')) : (r.studentB + '번');
+
+    var posA = sPosMap[String(r.studentA).trim()];
+    var posB = sPosMap[String(r.studentB).trim()];
+
+    if (r.type === 'front') {
+      var isFront = posA && posA.row <= frontMax;
+      if (isFront) successCount++;
+      var statusBadge = isFront
+        ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (' + posA.row + '행 ' + posA.col + '열)</span>'
+        : (posA ? '<span style="background:rgba(255,215,0,0.15);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⚠️ 미반영 (' + posA.row + '행)</span>' : '<span style="color:var(--text2);font-size:0.8rem">미배정</span>');
+
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<span class="rule-type-badge front">⬆️ 앞자리</span>'
+        + '<span style="font-weight:600;font-size:0.9rem">' + nameA + '</span>'
+        + (r.memo ? '<span style="color:var(--text2);font-size:0.8rem">(' + r.memo + ')</span>' : '')
+        + '</div>'
+        + statusBadge
+        + '</div>';
+    } else if (r.type === 'separate') {
+      var isSafe = true;
+      if (posA && posB) {
+        var isAdj = (posA.row === posB.row && Math.abs(posA.col - posB.col) === 1) || (posA.col === posB.col && Math.abs(posA.row - posB.row) === 1);
+        if (isAdj) isSafe = false;
+      }
+      if (posA && posB && isSafe) successCount++;
+      var statusBadge = (posA && posB)
+        ? (isSafe
+            ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (비인접 유지: ' + posA.row + '행 ' + posA.col + '열 ↔ ' + posB.row + '행 ' + posB.col + '열)</span>'
+            : '<span style="background:rgba(233,69,96,0.15);color:#e94560;border:1px solid rgba(233,69,96,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">❌ 인접 배치됨</span>')
+        : '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<span class="rule-type-badge separate">🚫 인접 금지</span>'
+        + '<span style="font-weight:600;font-size:0.9rem">' + nameA + ' ↔ ' + nameB + '</span>'
+        + (r.memo ? '<span style="color:var(--text2);font-size:0.8rem">(' + r.memo + ')</span>' : '')
+        + '</div>'
+        + statusBadge
+        + '</div>';
+    } else if (r.type === 'together') {
+      var isTogether = false;
+      if (posA && posB) {
+        if (posA.row === posB.row && Math.abs(posA.col - posB.col) === 1) {
+          if (maxCol % 2 === 0) {
+            isTogether = (Math.min(posA.col, posB.col) % 2 === 1);
+          } else {
+            isTogether = true;
+          }
+        }
+      }
+      if (isTogether) successCount++;
+      var statusBadge = (posA && posB)
+        ? (isTogether
+            ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (' + posA.row + '행 ' + Math.min(posA.col, posB.col) + '-' + Math.max(posA.col, posB.col) + '열 짝꿍)</span>'
+            : '<span style="background:rgba(255,215,0,0.15);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⚠️ 미인접</span>')
+        : '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<span class="rule-type-badge together">🤝 짝꿍</span>'
+        + '<span style="font-weight:600;font-size:0.9rem">' + nameA + ' ↔ ' + nameB + '</span>'
+        + (r.memo ? '<span style="color:var(--text2);font-size:0.8rem">(' + r.memo + ')</span>' : '')
+        + '</div>'
+        + statusBadge
+        + '</div>';
+    }
+  });
+
+  if (avoidChecked) {
+    totalChecked++;
+    successCount++;
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span class="rule-type-badge" style="background:#5352ed;color:#fff">🔄 직전 회피</span>'
+      + '<span style="font-weight:600;font-size:0.9rem">지난 배치와 같은 자리 배정 피하기</span>'
+      + '</div>'
+      + '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 우선 반영됨</span>'
+      + '</div>';
+  }
+
+  container.style.display = 'block';
+  var countEl = container.querySelector('.applied-rules-count');
+  if (countEl) {
+    if (successCount === totalChecked) {
+      countEl.textContent = '모든 규칙(' + totalChecked + '개) 100% 반영 완료 ✨';
+      if (countEl.style) {
+        countEl.style.background = 'rgba(6,214,160,0.2)';
+        countEl.style.color = '#06d6a0';
+      }
+    } else {
+      countEl.textContent = successCount + ' / ' + totalChecked + '개 반영됨';
+      if (countEl.style) {
+        countEl.style.background = 'rgba(255,215,0,0.2)';
+        countEl.style.color = 'var(--gold)';
+      }
+    }
+  }
+  var listEl = container.querySelector('.applied-rules-list');
+  if (listEl) listEl.innerHTML = html;
 }
 
 function saveCurrentSeating(){
@@ -2248,6 +2412,7 @@ function assignRouletteStudent(student, freeSeats){
   renderRouletteSeatGrid();
   renderUnassigned();
   confetti();
+  renderAppliedRules(STATE.currentSeating, 'roulette-applied-rules-container');
 }
 
 function renderRouletteSeatGrid(){
@@ -2319,6 +2484,8 @@ function resetRoulette(){
   drawRoulette();
   renderRouletteSeatGrid();
   renderUnassigned();
+  var rEl = document.getElementById('roulette-applied-rules-container');
+  if (rEl) rEl.style.display = 'none';
   toast('룰렛이 초기화되었습니다','info');
 }
 
