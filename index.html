@@ -559,6 +559,11 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
       <button class="btn btn-secondary" onclick="downloadXlsx()">📊 엑셀 다운로드</button>
       <button class="flip-btn" id="flip-btn-shuffle" onclick="toggleFlip('shuffle')" title="칠판 위치 반전 (상하좌우)">🔃 칠판 위치 반전</button>
     </div>
+    <!-- 규칙 등록 현황 요약 안내 바 -->
+    <div id="shuffle-rule-status-bar" style="margin-top:14px;padding:10px 14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);font-size:0.85rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div id="shuffle-rule-status-text" style="color:var(--text);display:flex;align-items:center;gap:6px"></div>
+      <button class="btn btn-secondary btn-sm" onclick="showPanel('panel-rules')">⚙️ 규칙 설정 이동</button>
+    </div>
   </div>
   <div class="card" id="shuffle-result-card" style="display:none">
     <div class="card-title"><span class="icon">🏫</span>배치 결과</div>
@@ -566,8 +571,8 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
     <div id="result-classroom"></div>
     <div style="margin-top:12px"><div id="unplaced-list" style="font-size:.85rem;color:var(--text2)"></div></div>
     <!-- 적용된 규칙 결과 표시 영역 -->
-    <div id="shuffle-applied-rules-container" style="display:none;margin-top:20px;border-top:1px dashed var(--border);padding-top:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div id="shuffle-applied-rules-container" style="margin-top:20px;border-top:1px dashed var(--border);padding-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
         <div style="font-weight:700;font-size:0.95rem;color:var(--text);display:flex;align-items:center;gap:6px">
           <span>📋 적용된 규칙 현황</span>
           <span class="applied-rules-count badge" style="background:rgba(6,214,160,0.15);color:var(--teal);border:1px solid var(--teal);padding:2px 8px;border-radius:12px;font-size:0.75rem"></span>
@@ -606,7 +611,7 @@ label{font-size:.85rem;color:var(--text2);margin-bottom:4px;display:block}
           <div id="unassigned-list"></div>
         </div>
         <!-- 룰렛용 적용된 규칙 표시 -->
-        <div id="roulette-applied-rules-container" style="display:none;margin-top:16px;border-top:1px dashed var(--border);padding-top:12px">
+        <div id="roulette-applied-rules-container" style="display:block;margin-top:16px;border-top:1px dashed var(--border);padding-top:12px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
             <div style="font-weight:700;font-size:0.9rem;color:var(--text);display:flex;align-items:center;gap:6px">
               <span>📋 적용된 규칙 현황</span>
@@ -812,13 +817,26 @@ function doGuest(){
 function enterApp(user, isGuest){
   STATE.user = user;
   STATE.isGuest = isGuest;
+  if (user) {
+    try {
+      localStorage.setItem('MODU_SEATS_SESSION_USER', JSON.stringify(user));
+    } catch(e) {}
+  } else {
+    try {
+      localStorage.removeItem('MODU_SEATS_SESSION_USER');
+    } catch(e) {}
+  }
   document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('auth-screen').style.display = 'none';
   updateUserBadge();
   updateGuestBanner();
   initApp();
 }
 
 function doLogout(){
+  try {
+    localStorage.removeItem('MODU_SEATS_SESSION_USER');
+  } catch(e) {}
   STATE.user = null;
   STATE.isGuest = false;
   STATE.students = [];
@@ -826,6 +844,9 @@ function doLogout(){
   STATE.currentSeating = null;
   renderStudentList();
   renderRuleList();
+  updateShuffleRuleStatusBar();
+  updateUserBadge();
+  updateGuestBanner();
   document.getElementById('auth-screen').classList.remove('hidden');
   document.getElementById('auth-screen').style.display = 'flex';
 }
@@ -928,7 +949,16 @@ function showPanel(id){
   document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
   document.getElementById(id).classList.add('active');
   document.querySelector('[data-panel="'+id+'"]').classList.add('active');
-  if(id==='panel-roulette') initRouletteCanvas();
+  if(id==='panel-rules') updateRuleSelects();
+  if(id==='panel-shuffle') {
+    updateShuffleRuleStatusBar();
+    if(STATE.currentSeating) renderAppliedRules(STATE.currentSeating, 'shuffle-applied-rules-container');
+    else renderAppliedRules(null, 'shuffle-applied-rules-container');
+  }
+  if(id==='panel-roulette') {
+    initRouletteCanvas();
+    renderAppliedRules(STATE.currentSeating, 'roulette-applied-rules-container');
+  }
   if(id==='panel-history') loadHistory();
 }
 
@@ -1253,15 +1283,38 @@ function addRule(){
   }
 }
 
+function updateShuffleRuleStatusBar(){
+  var bar = document.getElementById('shuffle-rule-status-bar');
+  var textEl = document.getElementById('shuffle-rule-status-text');
+  if (!bar || !textEl) return;
+  var rules = STATE.rules || [];
+  if (!rules.length) {
+    textEl.innerHTML = '<span style="color:var(--text2)">💡 현재 등록된 특수 규칙이 없습니다. [규칙 설정 이동]을 눌러 앞자리, 인접금지, 짝꿍을 설정해보세요.</span>';
+  } else {
+    var fCount = rules.filter(function(r){ return r.type==='front'; }).length;
+    var sCount = rules.filter(function(r){ return r.type==='separate'; }).length;
+    var tCount = rules.filter(function(r){ return r.type==='together'; }).length;
+    var parts = [];
+    if (fCount) parts.push('앞자리 ' + fCount + '건');
+    if (sCount) parts.push('인접금지 ' + sCount + '건');
+    if (tCount) parts.push('짝꿍 ' + tCount + '건');
+    textEl.innerHTML = '<span>📌 <strong>적용 대기 규칙 총 ' + rules.length + '건</strong> (' + parts.join(', ') + ') 등록됨 <span style="color:var(--teal);margin-left:4px">● 강력 우선 적용 준비 완료</span></span>';
+  }
+}
+
 function renderRuleList(){
   document.getElementById('rule-count').textContent = STATE.rules.length;
   var list = document.getElementById('rule-list');
-  if(!STATE.rules.length){ list.innerHTML='<div style="color:var(--text2);text-align:center;padding:20px">등록된 규칙이 없습니다</div>'; return; }
+  if(!STATE.rules.length){ 
+    list.innerHTML='<div style="color:var(--text2);text-align:center;padding:20px">등록된 규칙이 없습니다</div>'; 
+    updateShuffleRuleStatusBar();
+    return; 
+  }
   list.innerHTML = STATE.rules.map(function(r, i){
     var typeLabel = r.type==='separate'?'🚫 분리':r.type==='together'?'🤝 인접':'⬆️ 앞자리';
     var typeClass = r.type==='separate'?'separate':r.type==='together'?'together':'front';
-    var sA = STATE.students.find(function(s){ return s.number==r.studentA; });
-    var sB = STATE.students.find(function(s){ return s.number==r.studentB; });
+    var sA = STATE.students.find(function(s){ return String(s.number).trim() == String(r.studentA).trim(); });
+    var sB = STATE.students.find(function(s){ return String(s.number).trim() == String(r.studentB).trim(); });
     var nameA = sA ? (sA.number+'번'+(sA.name?' '+sA.name:'')) : r.studentA+'번';
     var nameB = sB ? (sB.number+'번'+(sB.name?' '+sB.name:'')) : r.studentB+'번';
     var desc = nameA + (r.type!=='front'?' ↔ '+nameB:'');
@@ -1272,6 +1325,7 @@ function renderRuleList(){
       +'<button class="btn btn-danger btn-sm" onclick="deleteRule('+i+')">✕</button>'
       +'</div>';
   }).join('');
+  updateShuffleRuleStatusBar();
 }
 
 function deleteRule(i){ 
@@ -2022,12 +2076,25 @@ function renderAppliedRules(result, targetContainerId){
   var rules = STATE.rules || [];
   var avoidChecked = document.getElementById('avoid-last') ? document.getElementById('avoid-last').checked : false;
 
+  var listEl = container.querySelector('.applied-rules-list');
+  var countEl = container.querySelector('.applied-rules-count');
+
   if (!rules.length && !avoidChecked) {
-    container.style.display = 'none';
+    container.style.display = 'block';
+    if (countEl) {
+      countEl.textContent = '등록된 규칙 없음 (자유 배치)';
+      countEl.style.background = 'rgba(255,255,255,0.06)';
+      countEl.style.color = 'var(--text2)';
+      countEl.style.border = '1px solid var(--border)';
+    }
+    if (listEl) {
+      listEl.innerHTML = '<div style="color:var(--text2);text-align:center;padding:14px;background:var(--surface2);border-radius:6px;border:1px dashed var(--border);font-size:0.85rem">💡 현재 등록된 특수 규칙이 없습니다. [규칙설정] 탭에서 앞자리, 인접 금지, 짝꿍 규칙을 등록해보세요.</div>';
+    }
     return;
   }
 
   var seats = (result && result.seats) ? result.seats : [];
+  var hasAssignedSeats = seats.some(function(s){ return s && s.student; });
   var sPosMap = {};
   seats.forEach(function(s){
     if (s && s.student) {
@@ -2058,9 +2125,16 @@ function renderAppliedRules(result, targetContainerId){
     if (r.type === 'front') {
       var isFront = posA && posA.row <= frontMax;
       if (isFront) successCount++;
-      var statusBadge = isFront
-        ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (' + posA.row + '행 ' + posA.col + '열)</span>'
-        : (posA ? '<span style="background:rgba(255,215,0,0.15);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⚠️ 미반영 (' + posA.row + '행)</span>' : '<span style="color:var(--text2);font-size:0.8rem">미배정</span>');
+      var statusBadge = '';
+      if (!hasAssignedSeats) {
+        statusBadge = '<span style="background:rgba(0,180,216,0.12);color:var(--teal);border:1px solid rgba(0,180,216,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⏳ 대기 중 (배치 시 앞쪽 1~2행 우선 배정)</span>';
+      } else if (isFront) {
+        statusBadge = '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (' + posA.row + '행 ' + posA.col + '열)</span>';
+      } else if (posA) {
+        statusBadge = '<span style="background:rgba(255,215,0,0.15);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⚠️ 미반영 (' + posA.row + '행)</span>';
+      } else {
+        statusBadge = '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+      }
 
       html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:8px">'
@@ -2077,11 +2151,16 @@ function renderAppliedRules(result, targetContainerId){
         if (isAdj) isSafe = false;
       }
       if (posA && posB && isSafe) successCount++;
-      var statusBadge = (posA && posB)
-        ? (isSafe
-            ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (비인접 유지: ' + posA.row + '행 ' + posA.col + '열 ↔ ' + posB.row + '행 ' + posB.col + '열)</span>'
-            : '<span style="background:rgba(233,69,96,0.15);color:#e94560;border:1px solid rgba(233,69,96,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">❌ 인접 배치됨</span>')
-        : '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+      var statusBadge = '';
+      if (!hasAssignedSeats) {
+        statusBadge = '<span style="background:rgba(0,180,216,0.12);color:var(--teal);border:1px solid rgba(0,180,216,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⏳ 대기 중 (상하좌우 인접 차단 보장)</span>';
+      } else if (posA && posB) {
+        statusBadge = isSafe
+          ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (비인접 유지: ' + posA.row + '행 ' + posA.col + '열 ↔ ' + posB.row + '행 ' + posB.col + '열)</span>'
+          : '<span style="background:rgba(233,69,96,0.15);color:#e94560;border:1px solid rgba(233,69,96,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">❌ 인접 배치됨</span>';
+      } else {
+        statusBadge = '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+      }
 
       html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:8px">'
@@ -2103,11 +2182,16 @@ function renderAppliedRules(result, targetContainerId){
         }
       }
       if (isTogether) successCount++;
-      var statusBadge = (posA && posB)
-        ? (isTogether
-            ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (' + posA.row + '행 ' + Math.min(posA.col, posB.col) + '-' + Math.max(posA.col, posB.col) + '열 짝꿍)</span>'
-            : '<span style="background:rgba(255,215,0,0.15);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⚠️ 미인접</span>')
-        : '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+      var statusBadge = '';
+      if (!hasAssignedSeats) {
+        statusBadge = '<span style="background:rgba(0,180,216,0.12);color:var(--teal);border:1px solid rgba(0,180,216,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⏳ 대기 중 (짝꿍 분단 인접 보장)</span>';
+      } else if (posA && posB) {
+        statusBadge = isTogether
+          ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 반영 완료 (' + posA.row + '행 ' + Math.min(posA.col, posB.col) + '-' + Math.max(posA.col, posB.col) + '열 짝꿍)</span>'
+          : '<span style="background:rgba(255,215,0,0.15);color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⚠️ 미인접</span>';
+      } else {
+        statusBadge = '<span style="color:var(--text2);font-size:0.8rem">미배정</span>';
+      }
 
       html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:8px">'
@@ -2122,31 +2206,36 @@ function renderAppliedRules(result, targetContainerId){
 
   if (avoidChecked) {
     totalChecked++;
-    successCount++;
+    if (hasAssignedSeats) successCount++;
     html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">'
       + '<div style="display:flex;align-items:center;gap:8px">'
       + '<span class="rule-type-badge" style="background:#5352ed;color:#fff">🔄 직전 회피</span>'
       + '<span style="font-weight:600;font-size:0.9rem">지난 배치와 같은 자리 배정 피하기</span>'
       + '</div>'
-      + '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 우선 반영됨</span>'
+      + (hasAssignedSeats
+          ? '<span style="background:rgba(6,214,160,0.15);color:#06d6a0;border:1px solid rgba(6,214,160,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">✅ 우선 반영됨</span>'
+          : '<span style="background:rgba(0,180,216,0.12);color:var(--teal);border:1px solid rgba(0,180,216,0.3);padding:3px 10px;border-radius:6px;font-size:0.8rem;font-weight:600">⏳ 대기 중</span>')
       + '</div>';
   }
 
   container.style.display = 'block';
   var countEl = container.querySelector('.applied-rules-count');
   if (countEl) {
-    if (successCount === totalChecked) {
+    if (!hasAssignedSeats) {
+      countEl.textContent = '적용 대기 중 (' + totalChecked + '개 규칙)';
+      countEl.style.background = 'rgba(0,180,216,0.15)';
+      countEl.style.color = 'var(--teal)';
+      countEl.style.border = '1px solid var(--teal)';
+    } else if (successCount === totalChecked) {
       countEl.textContent = '모든 규칙(' + totalChecked + '개) 100% 반영 완료 ✨';
-      if (countEl.style) {
-        countEl.style.background = 'rgba(6,214,160,0.2)';
-        countEl.style.color = '#06d6a0';
-      }
+      countEl.style.background = 'rgba(6,214,160,0.2)';
+      countEl.style.color = '#06d6a0';
+      countEl.style.border = '1px solid #06d6a0';
     } else {
       countEl.textContent = successCount + ' / ' + totalChecked + '개 반영됨';
-      if (countEl.style) {
-        countEl.style.background = 'rgba(255,215,0,0.2)';
-        countEl.style.color = 'var(--gold)';
-      }
+      countEl.style.background = 'rgba(255,215,0,0.2)';
+      countEl.style.color = 'var(--gold)';
+      countEl.style.border = '1px solid var(--gold)';
     }
   }
   var listEl = container.querySelector('.applied-rules-list');
@@ -2738,6 +2827,9 @@ function initApp(){
       call('getRules', {}, function(err, data){
         if(data) STATE.rules = data;
         renderRuleList();
+        updateShuffleRuleStatusBar();
+        if(STATE.currentSeating) renderAppliedRules(STATE.currentSeating, 'shuffle-applied-rules-container');
+        else renderAppliedRules(null, 'shuffle-applied-rules-container');
       });
       call('getConfig', {}, function(err, cfg){
         if(cfg && cfg.layout){
@@ -2757,11 +2849,29 @@ function initApp(){
       STATE.rules = [];
       renderStudentList();
       renderRuleList();
+      updateShuffleRuleStatusBar();
+      renderAppliedRules(null, 'shuffle-applied-rules-container');
       buildGrid();
     }
     toast(STATE.user ? (STATE.user.name+' 선생님, 환영합니다! 🎲') : '비회원으로 시작합니다. 저장 기능은 이용 불가합니다.', 'success');
   });
 }
+
+// ══════════════════════════════════════════════
+// 앱 구동 시 자동 세션 복원
+// ══════════════════════════════════════════════
+(function checkSavedSession(){
+  try {
+    var saved = localStorage.getItem('MODU_SEATS_SESSION_USER');
+    if (saved) {
+      var u = JSON.parse(saved);
+      if (u && u.email) {
+        enterApp(u, false);
+        return;
+      }
+    }
+  } catch(e) {}
+})();
 </script>
 </body>
 </html>

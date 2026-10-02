@@ -120,7 +120,7 @@ function signIn(payload) {
   var data   = sh.getRange(2,1,last-1,5).getValues();
   var hashed = hashPassword(password);
   for (var i=0; i<data.length; i++) {
-    if (data[i][0]===email && data[i][1]===hashed) {
+    if (String(data[i][0]).trim().toLowerCase()===email && data[i][1]===hashed) {
       var now = Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd HH:mm:ss');
       sh.getRange(i+2,5).setValue(now);
       return { ok:true, user:{ email:email, name:data[i][2] } };
@@ -152,7 +152,7 @@ function updateAccount(payload) {
   var hashed = hashPassword(currentPw);
 
   for (var i=0; i<data.length; i++) {
-    if (data[i][0]===email && data[i][1]===hashed) {
+    if (String(data[i][0]).trim().toLowerCase()===email && data[i][1]===hashed) {
       var row = i+2;
       if (newName)     sh.getRange(row,3).setValue(newName);
       if (newPassword) sh.getRange(row,2).setValue(hashPassword(newPassword));
@@ -212,12 +212,13 @@ function changeProfile(payload) {
 function getStudents(accountId) {
   initSheets();
   if (!accountId) return [];
+  var acc  = String(accountId).trim().toLowerCase();
   var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_STUDENTS);
   var last = sh.getLastRow();
   if (last < 2) return [];
   var data = sh.getRange(2,1,last-1,5).getValues();
   return data
-    .filter(function(r){ return r[0]===accountId && r[1]!==''; })
+    .filter(function(r){ return String(r[0]).trim().toLowerCase() === acc && r[1]!==''; })
     .map(function(r){
       return { number:r[1], name:r[2], memo:r[3], excluded:r[4]===true||r[4]==='TRUE'||r[4]==='제외' };
     });
@@ -226,15 +227,18 @@ function getStudents(accountId) {
 function saveStudents(accountId, students) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
+  var acc  = String(accountId).trim().toLowerCase();
   var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_STUDENTS);
   var last = sh.getLastRow();
   if (last >= 2) {
     var data = sh.getRange(2,1,last-1,1).getValues();
-    for (var i=data.length-1; i>=0; i--) { if(data[i][0]===accountId) sh.deleteRow(i+2); }
+    for (var i=data.length-1; i>=0; i--) { 
+      if(String(data[i][0]).trim().toLowerCase() === acc) sh.deleteRow(i+2); 
+    }
   }
   if (!students || students.length===0) return { ok:true };
   var rows = students.map(function(s){
-    return [accountId, s.number||'', s.name||'', s.memo||'', s.excluded?'제외':''];
+    return [acc, s.number||'', s.name||'', s.memo||'', s.excluded?'제외':''];
   });
   sh.getRange(sh.getLastRow()+1,1,rows.length,5).setValues(rows);
   return { ok:true };
@@ -246,27 +250,31 @@ function saveStudents(accountId, students) {
 function getRules(accountId) {
   initSheets();
   if (!accountId) return [];
+  var acc  = String(accountId).trim().toLowerCase();
   var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RULES);
   var last = sh.getLastRow();
   if (last < 2) return [];
   var data = sh.getRange(2,1,last-1,6).getValues();
   return data
-    .filter(function(r){ return r[0]===accountId && r[1]!==''; })
+    .filter(function(r){ return String(r[0]).trim().toLowerCase() === acc && r[1]!==''; })
     .map(function(r){ return { id:r[1], type:r[2], studentA:r[3], studentB:r[4], memo:r[5] }; });
 }
 
 function saveRules(accountId, rules) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
+  var acc  = String(accountId).trim().toLowerCase();
   var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_RULES);
   var last = sh.getLastRow();
   if (last >= 2) {
     var data = sh.getRange(2,1,last-1,1).getValues();
-    for (var i=data.length-1; i>=0; i--) { if(data[i][0]===accountId) sh.deleteRow(i+2); }
+    for (var i=data.length-1; i>=0; i--) { 
+      if(String(data[i][0]).trim().toLowerCase() === acc) sh.deleteRow(i+2); 
+    }
   }
   if (!rules || rules.length===0) return { ok:true };
   var rows = rules.map(function(r){
-    return [accountId, r.id||'', r.type||'', r.studentA||'', r.studentB||'', r.memo||''];
+    return [acc, r.id||'', r.type||'', r.studentA||'', r.studentB||'', r.memo||''];
   });
   sh.getRange(sh.getLastRow()+1,1,rows.length,6).setValues(rows);
   return { ok:true };
@@ -325,25 +333,25 @@ function getSeatingHistory(accountId) {
 function saveSeating(accountId, layoutJson) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
+  var acc = String(accountId).trim().toLowerCase();
   var ss  = SpreadsheetApp.getActiveSpreadsheet();
   var sh  = ss.getSheetByName(SHEET_NAME_SEATING);
   var hSh = ss.getSheetByName(SHEET_NAME_HISTORY);
   var now = new Date();
   var id  = Utilities.formatDate(now,'Asia/Seoul','yyyyMMdd_HHmmss');
   var dateStr = Utilities.formatDate(now,'Asia/Seoul','yyyy-MM-dd HH:mm:ss');
-  sh.appendRow([accountId, id, dateStr, JSON.stringify(layoutJson)]);
+  sh.appendRow([acc, id, dateStr, JSON.stringify(layoutJson)]);
   if (layoutJson && layoutJson.seats) {
     layoutJson.seats.forEach(function(seat){
-      if (seat.student) hSh.appendRow([accountId,id,dateStr,seat.student.number,seat.student.name,seat.row,seat.col]);
+      if (seat.student) hSh.appendRow([acc,id,dateStr,seat.student.number,seat.student.name,seat.row,seat.col]);
     });
   }
   var last = sh.getLastRow();
   if (last >= 2) {
     var rows = sh.getRange(2,1,last-1,2).getValues();
     var accountRows = [];
-    var targetAcc = String(accountId).trim().toLowerCase();
     rows.forEach(function(r,i){ 
-      if (String(r[0]).trim().toLowerCase() === targetAcc) accountRows.push(i+2); 
+      if (String(r[0]).trim().toLowerCase() === acc) accountRows.push(i+2); 
     });
     // 배치 기록을 삭제하지 않고 충분히(최대 200건) 보존
     if (accountRows.length > 200) {
@@ -375,25 +383,31 @@ function getLastSeatingMap(accountId) {
 function getConfig(accountId) {
   initSheets();
   if (!accountId) return {};
+  var acc  = String(accountId).trim().toLowerCase();
   var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
   var last = sh.getLastRow();
   if (last < 2) return {};
   var data = sh.getRange(2,1,last-1,3).getValues();
   var cfg  = {};
-  data.forEach(function(r){ if(r[0]===accountId && r[1]) cfg[r[1]]=r[2]; });
+  data.forEach(function(r){ 
+    if(String(r[0]).trim().toLowerCase() === acc && r[1]) cfg[r[1]]=r[2]; 
+  });
   return cfg;
 }
 
 function saveConfig(accountId, cfg) {
   initSheets();
   if (!accountId) return { ok:false, error:'로그인이 필요합니다.' };
+  var acc  = String(accountId).trim().toLowerCase();
   var sh   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME_CONFIG);
   var last = sh.getLastRow();
   if (last >= 2) {
     var data = sh.getRange(2,1,last-1,1).getValues();
-    for (var i=data.length-1; i>=0; i--) { if(data[i][0]===accountId) sh.deleteRow(i+2); }
+    for (var i=data.length-1; i>=0; i--) { 
+      if(String(data[i][0]).trim().toLowerCase() === acc) sh.deleteRow(i+2); 
+    }
   }
-  var rows = Object.keys(cfg).map(function(k){ return [accountId, k, cfg[k]]; });
+  var rows = Object.keys(cfg).map(function(k){ return [acc, k, cfg[k]]; });
   if (rows.length) sh.getRange(sh.getLastRow()+1,1,rows.length,3).setValues(rows);
   return { ok:true };
 }
@@ -856,7 +870,7 @@ function solveSeatingAlgorithm(activeSeats, eligibleStudents, rules, lastMap) {
 // ──────────────────────────────────────────────
 function dispatch(action, payload) {
   payload = payload || {};
-  var accountId = payload.accountId || null;
+  var accountId = payload.accountId ? String(payload.accountId).trim().toLowerCase() : null;
   switch(action) {
     case 'initSheets':        return initSheets();
     case 'signUp':            return signUp(payload);
